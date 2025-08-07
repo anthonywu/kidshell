@@ -1,0 +1,262 @@
+[build-system]
+requires = ["uv_build>=0.8.3,<0.9.0"]
+build-backend = "uv_build"
+
+[project]
+name = "kidshell"
+version = "1.0.0a"
+description = "A REPL shell that is resilient in the face of childish expectations"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [
+    { name = "Anthony Wu", email = "ls-file-gh-issue@users.noreply.github.com" },
+]
+keywords = ["repl", "shell", "education", "children", "interactive", "learning"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Education",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Education",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+    "platformdirs>=4.3.6",
+    "requests>=2.27.1,<3.0",
+    "rich==14.1.0",
+    "scipy>=1.9,<2.0",
+    "sympy>=1.11,<2.0",
+    "textualize>=0.1,<1.0",
+    "tqdm>4.60,<5.0",
+    "typing-extensions>=3.7.4,<5.0; python_version < '3.10'",
+]
+
+[project.urls]
+Repository = "https://github.com/anthonywu/kidshell"
+Issues = "https://github.com/anthonywu/kidshell/issues"
+Changelog = "https://github.com/anthonywu/kidshell/blob/main/CHANGELOG.md"
+
+[project.scripts]
+kidshell = "kidshell.cli.main:main"
+kidshell-web = "kidshell.cli.web:main"
+
+# Modern dependency groups (PEP 735 style)
+[dependency-groups]
+dev = ["pytest>=8.0", "pytest-cov>=5.0", "pytest-mock>=3.14"]
+lint = ["ruff>=0.8.0"]
+type = ["ty>=0.2.5", "types-requests>=2.32"]
+
+# Hatchling configuration
+[tool.hatch.build.targets.wheel]
+packages = ["src/kidshell"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "src/",
+    "docs/",
+    "data/",
+    "LICENSE",
+    "README.md",
+    "SECURITY.md",
+    "pyproject.toml",
+]
+
+# Ruff configuration (linting and formatting)
+[tool.ruff]
+fix = true
+indent-width = 4
+line-length = 119
+respect-gitignore = true
+src = ["src", "tests"]
+target-version = "py311"
+
+[tool.ruff.lint]
+select = [
+    "E", # pycodestyle errors
+    "W", # pycodestyle warnings
+    "F", # pyflakes
+    # "B", # flake8-bugbear
+    # "C4",   # flake8-comprehensions
+    # "D",    # pydocstyle
+    # "I",    # isort
+    # "UP",   # pyupgrade
+    # "N",    # pep8-naming
+    # "S",    # flake8-bandit (security)
+    # "BLE",  # flake8-blind-except
+    # "FBT",  # flake8-boolean-trap
+    # "A",    # flake8-builtins
+    # "COM",  # flake8-commas
+    # "C90",  # mccabe complexity
+    # "ISC",  # flake8-implicit-str-concat
+    # "ICN",  # flake8-import-conventions
+    # "G",    # flake8-logging-format
+    # "INP",  # flake8-no-pep420
+    # "PIE",  # flake8-pie
+    # "T20",  # flake8-print
+    # "PYI",  # flake8-pyi
+    # "PT",   # flake8-pytest-style
+    # "Q",    # flake8-quotes
+    # "RSE",  # flake8-raise
+    # "RET",  # flake8-return
+    # "SLF",  # flake8-self
+    # "SLOT", # flake8-slots
+    # "SIM",  # flake8-simplify
+    # "TID",  # flake8-tidy-imports
+    # "TCH",  # flake8-type-checking
+    # "ARG",  # flake8-unused-arguments
+    # "PTH",  # flake8-use-pathlib
+    # "ERA",  # eradicate
+    # "PGH",  # pygrep-hooks
+    #     "PL",   # pylint
+    #     "TRY",  # tryceratops
+    #     "FLY",  # flynt
+    #     "PERF", # perflint
+    #     "RUF",  # ruff-specific rules
+]
+
+ignore = [
+    "D",
+    "BLE",    # TODO: re-enable and fix later
+    "FBT",    # TODO: re-enable and fix later
+    "RUF",    # TODO: re-enable and fix later
+    "PERF",   # TODO: re-enable and fix later
+    "PLC",    # TODO: re-enable and fix later
+    "PLR",    # TODO: re-enable and fix later
+    "PLW",    # TODO: re-enable and fix later
+    "SIM",    # TODO: re-enable and fix later
+    "TRY",    # TODO: re-enable and fix later
+    "COM812", # missing-trailing-comma
+    "D100",   # Missing docstring in public module
+    "D104",   # Missing docstring in public package
+    "D107",   # Missing docstring in __init__
+    "D200",   # One-line docstring should fit on one line"
+    "D203",   # 1 blank line required before class docstring
+    "D212",   # Multi-line docstring summary should start at the first line
+    "D213",   # Multi-line docstring summary should start at the second line
+    "E501",   # Line too long (handled by formatter)
+    "S101",   # Use of assert detected (needed for tests)
+    "S311",   # pseudo-random generators are fine in tests
+    "T201",   # Print found (needed for REPL)
+    "T203",   # pprint found (useful for debugging)
+    "UP038",  # Use `X | Y` in `isinstance` call instead of `(X, Y)`
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = [
+    "BLE001",  # exceptions in tests
+    "S101",    # asserts are fine in tests
+    "ARG",     # unused arguments are common in fixtures
+    "FBT",     # boolean flags are common in tests
+    "PLR2004", # magic values are fine in tests
+
+]
+"src/kidshell/cli/main.py" = [
+    "T201",    # Print is intentional in REPL
+    "C901",    # Complex function is OK for main loop
+    "PLR0912", # Too many branches
+    "PLR0915", # Too many statements
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["kidshell"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 15
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+docstring-code-line-length = "dynamic"
+
+# Ty configuration (Astral's type checker)
+[tool.ty]
+include = ["src"]
+python_version = "3.9"
+strict = false
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = false
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+
+# Pytest configuration
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--strict-config",
+    "--cov=kidshell",
+    "--cov-branch",
+    "--cov-report=term-missing:skip-covered",
+    "--cov-report=html",
+    "--cov-report=xml",
+]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+    "unit: marks tests as unit tests",
+]
+
+# Coverage configuration
+[tool.coverage.run]
+source = ["src/kidshell"]
+branch = true
+parallel = true
+omit = ["*/tests/*", "*/__init__.py", "*/__main__.py"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if self.debug:",
+    "if DEBUG:",
+    "if __name__ == .__main__.:",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
+]
+precision = 2
+show_missing = true
+
+# UV configuration
+[tool.uv]
+managed = true
+dev-dependencies = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "pytest-mock>=3.14",
+    "ruff>=0.8.0",
+    "mypy>=1.13.0",
+    "ty>=0.2.5",
+    "types-requests>=2.32",
+]
