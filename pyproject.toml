@@ -7,7 +7,7 @@ name = "kidshell"
 version = "1.0.1a"
 description = "A REPL shell that is resilient in the face of childish expectations"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [
     { name = "Anthony Wu", email = "ls-file-gh-issue@users.noreply.github.com" },
@@ -33,6 +33,7 @@ classifiers = [
 ]
 dependencies = [
     "platformdirs>=4.3.6",
+    "pydantic-monty>=0.0.1",
     "requests>=2.27.1,<3.0",
     "rich==14.1.0",
     "scipy>=1.9,<2.0",
