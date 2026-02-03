@@ -1,10 +1,10 @@
 [build-system]
-requires = ["uv_build>=0.8.3,<0.9.0"]
+requires = ["uv_build>=0.9.0,<0.10.0"]
 build-backend = "uv_build"
 
 [project]
 name = "kidshell"
-version = "1.0.0a"
+version = "1.0.1a"
 description = "A REPL shell that is resilient in the face of childish expectations"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -53,9 +53,16 @@ kidshell-web = "kidshell.cli.web:main"
 
 # Modern dependency groups (PEP 735 style)
 [dependency-groups]
-dev = ["pytest>=8.0", "pytest-cov>=5.0", "pytest-mock>=3.14"]
+dev = [
+    "mypy>=1.13.0",
+    "pytest-cov>=5.0",
+    "pytest-mock>=3.14",
+    "pytest>=8.0",
+    "ruff>=0.8.0",
+    "types-requests>=2.32",
+]
 lint = ["ruff>=0.8.0"]
-type = ["ty>=0.2.5", "types-requests>=2.32"]
+type = ["types-requests>=2.32"]
 
 # Hatchling configuration
 [tool.hatch.build.targets.wheel]
@@ -251,12 +258,3 @@ show_missing = true
 # UV configuration
 [tool.uv]
 managed = true
-dev-dependencies = [
-    "pytest>=8.0",
-    "pytest-cov>=5.0",
-    "pytest-mock>=3.14",
-    "ruff>=0.8.0",
-    "mypy>=1.13.0",
-    "ty>=0.2.5",
-    "types-requests>=2.32",
-]
