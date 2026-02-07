@@ -38,11 +38,14 @@ DEBUG = "DEBUG" in os.environ
 if DEBUG:
     logging.basicConfig(level=logging.DEBUG)
 
+# Use SystemRandom so security scans don't treat quiz randomness as weak PRNG usage.
+RNG = random.SystemRandom()
+
 SUCCESS_EMOJIS = ["😀", "🙌", "👍", "😇"]
 FAILURE_EMOJIS = ["🙈", "🤦", "😑", "😕", "🙅‍♂️"]
 
 MOTION_EMOJIS = ["🚣", "🛫", "🚋"]
-TODAY_MOTION_EMOJI = random.choice(MOTION_EMOJIS)
+TODAY_MOTION_EMOJI = RNG.choice(MOTION_EMOJIS)
 
 
 class TryNext(ValueError):
@@ -256,7 +259,7 @@ def breakdown_number_to_ten_plus(number):
 
 
 def generate_new_addition_problem(number_max=100):
-    x, y = random.randint(1, number_max), random.randint(1, number_max)
+    x, y = RNG.randint(1, number_max), RNG.randint(1, number_max)
     solution = x + y
     MATH_ENV["problem_expected_solution"] = solution_text = str(solution)
     problem_texts = [f"{x} + {y}"]
@@ -272,7 +275,7 @@ def generate_new_addition_problem(number_max=100):
 
 
 def generate_new_subtraction_problem(number_max=100):
-    a, b = random.randint(1, number_max), random.randint(1, number_max)
+    a, b = RNG.randint(1, number_max), RNG.randint(1, number_max)
     x, y = max(a, b), min(a, b)
     solution = x - y
     MATH_ENV["problem_expected_solution"] = solution_text = str(solution)
@@ -286,7 +289,7 @@ def generate_new_subtraction_problem(number_max=100):
     return "  ==  ".join(problem_texts) + " == " + ("?" * len(solution_text))
 
 
-def find_factors(number: int, min_factor=2) -> list[int]:
+def find_factors(number: int, min_factor=2) -> list[tuple[int, int]]:
     results = []
     for factor_candidate in range(min_factor, math.floor(math.sqrt(number) + 1)):
         if number % factor_candidate == 0:
@@ -296,7 +299,7 @@ def find_factors(number: int, min_factor=2) -> list[int]:
     return results
 
 
-def format_factors(factors: list[int]) -> str:
+def format_factors(factors: list[tuple[int, int]]) -> str:
     factor_seq = " = ".join([f"{a} × {b}" for a, b in factors])
     return factor_seq
 
@@ -307,14 +310,14 @@ def get_number_hint(number: int, placeholder="?") -> str:
 
 def generate_multiplication_problem(rand_min=1, rand_max=100):
     while True:
-        solution = random.randint(rand_min, rand_max)
+        solution = RNG.randint(rand_min, rand_max)
         if factors := find_factors(solution):
             MATH_ENV["problem_expected_solution"] = str(solution)
             return f"{format_factors(factors)} = {get_number_hint(solution)}"
 
 
 def generate_division_problem():
-    x = random.randint(1, 10) * 10
+    x = RNG.randint(1, 10) * 10
     y = x // 10
     solution = x // y
     MATH_ENV["problem_expected_solution"] = str(solution)
@@ -322,7 +325,7 @@ def generate_division_problem():
 
 
 def generate_new_math_question(normalized_input):
-    dice_roll = random.randint(1, 4)
+    dice_roll = RNG.randint(1, 4)
     if dice_roll == 1:
         output = generate_new_addition_problem()
     elif dice_roll == 2:
@@ -335,12 +338,12 @@ def generate_new_math_question(normalized_input):
 
 
 def generate_new_math_question_basic(add_sub_max=20, mul_div_max=10):
-    op = random.choice(["+", "-"])
+    op = RNG.choice(["+", "-"])
     if op in ["+", "-"]:
-        x, y = random.randint(0, add_sub_max), random.randint(0, add_sub_max)
+        x, y = RNG.randint(0, add_sub_max), RNG.randint(0, add_sub_max)
         x, y = max(x, y), min(x, y)
     elif op == "*":
-        x, y = random.randint(1, mul_div_max), random.randint(1, mul_div_max)
+        x, y = RNG.randint(1, mul_div_max), RNG.randint(1, mul_div_max)
     MATH_ENV["problem_x"] = x
     MATH_ENV["problem_y"] = y
     MATH_ENV["problem_op"] = op
@@ -545,7 +548,7 @@ def display_welcome():
 
 def praise_phrase():
     options = t_list("great_options")
-    return random.choice(options)
+    return RNG.choice(options)
 
 
 def prompt_loop(prompt_text="> "):
@@ -597,11 +600,11 @@ def prompt_loop(prompt_text="> "):
                 # Already handled by Rich UI (e.g., tree display)
                 pass
             elif output is not None:
-                print(f"{random.choice(SUCCESS_EMOJIS)} {output}")
+                print(f"{RNG.choice(SUCCESS_EMOJIS)} {output}")
         except Exception:
             if DEBUG:
                 raise
-            print(f"{random.choice(FAILURE_EMOJIS)} ???")
+            print(f"{RNG.choice(FAILURE_EMOJIS)} ???")
 
 
 def main():

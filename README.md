@@ -6,6 +6,8 @@ A [REPL](https://en.wikipedia.org/wiki/Read%E2%80%93eval%E2%80%93print_loop) she
 
 > 🔒 **Security First**: kidshell implements comprehensive security measures to protect young users.
 
+All standard entrypoints (`kidshell`, `python -m kidshell`, and `just run`) use secure/sandboxed evaluation by default.
+
 See [SECURITY.md](SECURITY.md) for details on our security features and vulnerability reporting.
 
 ## Quick Start
@@ -35,17 +37,13 @@ Once launched, think *"What would a child do?"* and try:
 # Fastest - no installation needed
 uvx kidshell
 
-# Traditional pip install
-pip install kidshell
-
-# Or any of these valid ways of installing kidshell as a reusable command
+# Normal users: the terminal app is meant to be installed system-wide
+uv tool install kidshell  # global in PATH in your ~/.local/bin/kidshell
 pipx install kidshell  # global in PATH
-uv tool install kidshell  # global in PATH
 
-# or into your preferred venv
-python -m venv OR uv venv
-source .venv/bin/activate
-uv pip install kidshell  # into an isolated venv
+# For this repository workflow, prefer justfile helpers:
+just setup   # project .venv + dev dependencies
+just install # install kidshell as a uv tool from git cloned src
 ```
 
 ### For Developers
@@ -56,8 +54,7 @@ See [DEVELOPMENT.md](DEVELOPMENT.md) for the complete development guide.
 ```bash
 git clone https://github.com/anthonywu/kidshell.git
 cd kidshell
-just setup                      # Creates venv, installs deps
-source .venv/bin/activate
+just setup                      # Uses uv to create .venv and install deps
 just run                        # Run kidshell
 ```
 

@@ -28,11 +28,10 @@ git clone https://github.com/anthonywu/kidshell.git
 cd kidshell
 
 # Setup development environment
-just setup                      # Creates venv, installs all deps
-source .venv/bin/activate
+just setup                      # Creates .venv and installs all deps via uv
 
 # Run kidshell
-just run                        # Normal mode
+just run                        # Default mode (security sandbox enabled)
 just debug                      # Debug mode with verbose output
 ```
 
@@ -72,11 +71,10 @@ just todos      # Show TODO items
 ```bash
 just           # List all available commands
 just install   # Install project dependencies
-just dev       # Install development dependencies
 just format    # Format code with ruff
 just lint      # Run ruff linter
 just lint-fix  # Run linter with auto-fix
-just type-check # Run type checking (ty + mypy)
+just type-check # Run type checking (ty)
 just test      # Run tests with pytest
 just test-cov  # Run tests with coverage
 just clean     # Clean build artifacts
@@ -107,7 +105,6 @@ just fix
 just test-file tests/test_sandbox.py  # Run specific test file
 just test-verbose                      # Run tests with verbose output
 just test-unit                         # Run only unit tests
-just run-secure                        # Run secure sandbox version
 just todos                             # Show TODO items in code
 just loc                               # Count lines of code
 just deps-tree                         # Show dependency tree
@@ -138,16 +135,13 @@ ruff format --check src tests
 
 ### Type Checking
 
-We use both Ty and MyPy for comprehensive type checking:
+We use Ty for type checking:
 
 ```bash
 # Run Ty (Astral's type checker)
 ty check src
 
-# Run MyPy
-mypy src
-
-# Run both
+# Run via just
 just type-check
 ```
 
@@ -178,14 +172,11 @@ pytest -m integration
 Set up pre-commit hooks to automatically check code before commits:
 
 ```bash
-# Install pre-commit
-uv pip install pre-commit
-
-# Install the git hook scripts
-pre-commit install
+# Install the git hook scripts (uses uv-managed environment)
+just pre-commit-install
 
 # Run against all files (useful for first time)
-pre-commit run --all-files
+just pre-commit-all
 ```
 
 ## Project Structure
@@ -200,7 +191,6 @@ kidshell/
 │           ├── __init__.py
 │           ├── __main__.py      # CLI module entry point
 │           ├── main.py          # Main REPL implementation
-│           ├── main_secure.py   # Secure version with sandbox
 │           └── sandbox.py       # Security sandbox implementation
 ├── tests/
 │   └── test_sandbox.py          # Security tests
@@ -217,14 +207,15 @@ kidshell/
 
 ## Configuration
 
+By default, all standard run paths (`kidshell`, `python -m kidshell`, and `just run`) use secure sandboxing and safe evaluators for user input.
+
 All tool configurations are in `pyproject.toml`:
 
-- **[build-system]**: Uses hatchling for modern packaging
+- **[build-system]**: Uses uv_build for modern packaging
 - **[project]**: Package metadata and dependencies
 - **[dependency-groups]**: Development dependencies (PEP 735)
 - **[tool.ruff]**: Linting and formatting rules
 - **[tool.ty]**: Type checking configuration (Astral's type checker)
-- **[tool.mypy]**: Additional type checking
 - **[tool.pytest]**: Test configuration
 - **[tool.coverage]**: Code coverage settings
 - **[tool.uv]**: UV-specific settings
@@ -244,13 +235,12 @@ All tool configurations are in `pyproject.toml`:
 ### Adding a New Dependency
 
 ```bash
-# Add to main dependencies
-uv pip install package-name
-# Then add to pyproject.toml dependencies
+# Add dependency declaration in pyproject.toml first, then sync via justfile helpers
+# Main/dev sync
+just setup
 
-# Add to dev dependencies
-uv pip install --group dev package-name
-# Then add to appropriate dependency-group in pyproject.toml
+# Optional: regenerate and sync pinned requirements view
+just update-deps
 ```
 
 ### Creating a New Handler
@@ -288,7 +278,7 @@ ls dist/
 
 ```bash
 # Build the package
-make build
+just build
 
 # Upload to TestPyPI first
 uv publish --test
@@ -303,15 +293,16 @@ The project is configured to work with GitHub Actions, but can be adapted for ot
 
 1. Formatting: `ruff format --check`
 2. Linting: `ruff check`
-3. Type checking: `ty check && mypy`
+3. Type checking: `ty check`
 4. Tests: `pytest --cov`
 5. Security: Sandbox tests must pass
 
 ## Troubleshooting
 
 ### Import Errors
-- Ensure you're in the virtual environment: `source .venv/bin/activate`
-- Reinstall in editable mode: `uv pip install -e .`
+- Ensure dependencies are installed: `just setup`
+- Confirm interpreter resolution: `uv run python -c "import sys; print(sys.executable)"`
+- Reinstall/sync project environment: `just setup`
 
 ### Ruff Conflicts
 - Some rules may conflict with the formatter
@@ -319,7 +310,7 @@ The project is configured to work with GitHub Actions, but can be adapted for ot
 - Run `ruff check --fix` for auto-fixes
 
 ### Type Checking Issues
-- Ty may have different rules than MyPy
+- Ty rules may differ from other type checkers
 - Check `pyproject.toml` for configuration
 - Use `# type: ignore` sparingly with explanations
 
@@ -333,7 +324,7 @@ The project is configured to work with GitHub Actions, but can be adapted for ot
 1. Fork the repository
 2. Create a feature branch
 3. Make your changes
-4. Run `make all` to ensure quality
+4. Run `just all` to ensure quality
 5. Commit with clear messages
 6. Push and create a pull request
 
@@ -342,5 +333,5 @@ The project is configured to work with GitHub Actions, but can be adapted for ot
 - [UV Documentation](https://github.com/astral-sh/uv)
 - [Ruff Documentation](https://docs.astral.sh/ruff/)
 - [Ty Documentation](https://github.com/astral-sh/ty)
-- [Hatchling Documentation](https://hatch.pypa.io/)
+- [uv Build Backend Documentation](https://docs.astral.sh/uv/concepts/build-backend/)
 - [PEP 735 - Dependency Groups](https://peps.python.org/pep-0735/)
