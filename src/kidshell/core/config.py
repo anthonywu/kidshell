@@ -4,6 +4,8 @@ import json
 import logging
 import os
 import pathlib
+import shlex
+import shutil
 import subprocess
 import sys
 from typing import Any
@@ -107,6 +109,7 @@ class ConfigManager:
                 or file_name.startswith(("/", "\\"))
                 or (len(file_name) >= 2 and file_name[1] == ":" and file_name[0].isalpha())
             ):
+                # Early string-level reject of obvious traversal/absolute path attempts.
                 print(
                     f"Error: Invalid file name '{file_name}'. File names cannot contain '..', start with path separators, or contain drive letters."
                 )
@@ -126,10 +129,12 @@ class ConfigManager:
                     resolved_path.relative_to(data_dir_resolved)
                 except ValueError:
                     # Path is outside the data directory
+                    # Containment check blocks traversal through mixed segments/symlinks.
                     print(f"Error: File path '{file_name}' would escape the data directory.")
                     return
             except (OSError, RuntimeError) as e:
                 # OSError: file system errors, RuntimeError: symlink loops
+                # Treat resolution failures as unsafe rather than trying to continue.
                 print(f"Error: Invalid file path '{file_name}': {e}")
                 return
         else:
@@ -146,24 +151,35 @@ class ConfigManager:
                 print(f"Error: Could not create file '{file_path.name}': {e}")
                 return
 
-        # Get editor from environment
-        editor = os.environ.get("EDITOR", os.environ.get("VISUAL", None))
+        # Build editor argv without a shell, so characters like ';' are treated as literals.
+        editor_argv: list[str] | None = None
+        editor_from_env = os.environ.get("EDITOR", os.environ.get("VISUAL", None))
 
-        if not editor:
-            # Try common editors
+        if editor_from_env:
+            editor_parts = shlex.split(editor_from_env)
+            if editor_parts:
+                resolved_editor = shutil.which(editor_parts[0])
+                if resolved_editor:
+                    # Replace with absolute executable path to avoid PATH hijacking ambiguity.
+                    editor_argv = [resolved_editor, *editor_parts[1:], str(file_path)]
+
+        if not editor_argv:
+            # Try common editors and keep only absolute paths returned by shutil.which.
             for try_editor in ["nano", "vim", "vi", "emacs", "code", "subl"]:
-                if subprocess.run(["which", try_editor], check=False, capture_output=True, text=True).returncode == 0:
-                    editor = try_editor
+                resolved_editor = shutil.which(try_editor)
+                if resolved_editor:
+                    editor_argv = [resolved_editor, str(file_path)]
                     break
 
-        if not editor:
+        if not editor_argv:
             print("No editor found. Please set EDITOR environment variable.")
             print(f"Config location: {file_path}")
             return
 
-        print(f"Opening {file_path} with {editor}...")
+        print(f"Opening {file_path} with {editor_argv[0]}...")
         try:
-            subprocess.run([editor, str(file_path)], check=False)
+            # Run validated argv directly (never shell=True) to prevent command injection.
+            subprocess.run(editor_argv, check=False)  # noqa: S603
         except Exception as e:
             print(f"Error opening editor: {e}")
             print(f"Config location: {file_path}")

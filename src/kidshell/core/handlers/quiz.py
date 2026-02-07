@@ -38,6 +38,12 @@ class QuizHandler(Handler):
         """Check quiz answer."""
 
         quiz = session.current_quiz
+        if quiz is None:
+            return Response(
+                type=ResponseType.ERROR,
+                content="No active quiz.",
+                metadata={"input": input_text},
+            )
 
         # Extract answer if using explicit format
         answer = input_text

@@ -29,6 +29,9 @@ CHILD_FRIENDLY_SPINNERS = [
     "circle",  # Circle animation
 ]
 
+# Use SystemRandom for child-facing random choices to satisfy strict security linting.
+RNG = random.SystemRandom()
+
 
 class KidShellRichUI:
     """Rich UI components for enhanced child interaction."""
@@ -48,7 +51,7 @@ class KidShellRichUI:
             message: Message to display with spinner
             duration: How long to show the spinner
         """
-        spinner_name = random.choice(CHILD_FRIENDLY_SPINNERS)
+        spinner_name = RNG.choice(CHILD_FRIENDLY_SPINNERS)
 
         with Live(
             Spinner(spinner_name, text=f"[yellow]{message}...[/yellow]"),
@@ -164,7 +167,7 @@ class KidShellRichUI:
         Returns:
             Result from task_func if provided
         """
-        spinner = random.choice(["dots", "star", "bouncingBall"])
+        spinner = RNG.choice(["dots", "star", "bouncingBall"])
 
         with self.console.status(
             f"[bold green]{message}[/bold green]",

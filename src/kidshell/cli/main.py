@@ -11,6 +11,7 @@ import re
 import sys
 import time
 from datetime import date
+from typing import Any
 
 import rich.color as rich_color
 import rich.console as rich_console
@@ -38,11 +39,14 @@ DEBUG = "DEBUG" in os.environ
 if DEBUG:
     logging.basicConfig(level=logging.DEBUG)
 
+# Use SystemRandom so security scans don't treat quiz randomness as weak PRNG usage.
+RNG = random.SystemRandom()
+
 SUCCESS_EMOJIS = ["😀", "🙌", "👍", "😇"]
 FAILURE_EMOJIS = ["🙈", "🤦", "😑", "😕", "🙅‍♂️"]
 
 MOTION_EMOJIS = ["🚣", "🛫", "🚋"]
-TODAY_MOTION_EMOJI = random.choice(MOTION_EMOJIS)
+TODAY_MOTION_EMOJI = RNG.choice(MOTION_EMOJIS)
 
 
 class TryNext(ValueError):
@@ -58,9 +62,10 @@ def show_rich_emoji(text):
 
 
 def show_rich_emoji_match(text):
+    emoji_map = getattr(rich_emoji, "EMOJI", {})
     matches = [
         v
-        for (k, v) in rich_emoji.EMOJI.items()
+        for (k, v) in emoji_map.items()
         if all(
             (
                 text in k.split("_"),
@@ -84,12 +89,12 @@ def summarize_gibberish(text):
 
 def handle_color_name(text):
     match_found = False
+    output = rich_text.Text()
     match_text = text.replace(" ", "_")
     for color_name_var in [match_text, f"{match_text}1"]:
         try:
             rich_color.Color.parse(color_name_var)
             match_found = True
-            output = rich_text.Text()
             output.append("Color: ", style="bold white")
             output.append(text, style=f"bold {color_name_var}")
             break
@@ -177,7 +182,9 @@ except ModuleNotFoundError:
 SYMBOLS_ENV = copy.deepcopy(MATH_ENV)
 
 
-def handle_math_input(normalized_input):
+def handle_math_input(normalized_input: str | int | float) -> Any:
+    output: Any = normalized_input
+
     if isinstance(normalized_input, (int, float)):
         MATH_ENV["last_number"] = normalized_input
     elif isinstance(normalized_input, str) and normalized_input.isdigit():
@@ -188,21 +195,25 @@ def handle_math_input(normalized_input):
         RICH_UI.thinking_spinner("Calculating", 0.5)
 
     try:
-        if "=" in normalized_input:
+        if not isinstance(normalized_input, str):
+            output = normalized_input
+        elif "=" in normalized_input:
             # handle assignment safely
             from kidshell.core.safe_math import SafeMathError, SafeMathEvaluator
 
             parts = normalized_input.split("=", 1)
-            if len(parts) == 2:
-                var_name = parts[0].strip()
-                value_expr = parts[1].strip()
-                evaluator = SafeMathEvaluator(variables=MATH_ENV)
-                try:
-                    result = evaluator.evaluate(value_expr)
-                    MATH_ENV[var_name] = result
-                    output = result
-                except SafeMathError:
-                    raise TryNext("Invalid assignment")
+            if len(parts) != 2:
+                raise TryNext("Invalid assignment")
+
+            var_name = parts[0].strip()
+            value_expr = parts[1].strip()
+            evaluator = SafeMathEvaluator(variables=MATH_ENV)
+            try:
+                result = evaluator.evaluate(value_expr)
+                MATH_ENV[var_name] = result
+                output = result
+            except SafeMathError:
+                raise TryNext("Invalid assignment")
         elif any(normalized_input.startswith(op) for op in "+-*/"):
             inferred_cmd = f"{MATH_ENV['last_number']} {normalized_input}"
             print(inferred_cmd)
@@ -256,7 +267,7 @@ def breakdown_number_to_ten_plus(number):
 
 
 def generate_new_addition_problem(number_max=100):
-    x, y = random.randint(1, number_max), random.randint(1, number_max)
+    x, y = RNG.randint(1, number_max), RNG.randint(1, number_max)
     solution = x + y
     MATH_ENV["problem_expected_solution"] = solution_text = str(solution)
     problem_texts = [f"{x} + {y}"]
@@ -272,7 +283,7 @@ def generate_new_addition_problem(number_max=100):
 
 
 def generate_new_subtraction_problem(number_max=100):
-    a, b = random.randint(1, number_max), random.randint(1, number_max)
+    a, b = RNG.randint(1, number_max), RNG.randint(1, number_max)
     x, y = max(a, b), min(a, b)
     solution = x - y
     MATH_ENV["problem_expected_solution"] = solution_text = str(solution)
@@ -286,7 +297,7 @@ def generate_new_subtraction_problem(number_max=100):
     return "  ==  ".join(problem_texts) + " == " + ("?" * len(solution_text))
 
 
-def find_factors(number: int, min_factor=2) -> list[int]:
+def find_factors(number: int, min_factor=2) -> list[tuple[int, int]]:
     results = []
     for factor_candidate in range(min_factor, math.floor(math.sqrt(number) + 1)):
         if number % factor_candidate == 0:
@@ -296,7 +307,7 @@ def find_factors(number: int, min_factor=2) -> list[int]:
     return results
 
 
-def format_factors(factors: list[int]) -> str:
+def format_factors(factors: list[tuple[int, int]]) -> str:
     factor_seq = " = ".join([f"{a} × {b}" for a, b in factors])
     return factor_seq
 
@@ -307,14 +318,14 @@ def get_number_hint(number: int, placeholder="?") -> str:
 
 def generate_multiplication_problem(rand_min=1, rand_max=100):
     while True:
-        solution = random.randint(rand_min, rand_max)
+        solution = RNG.randint(rand_min, rand_max)
         if factors := find_factors(solution):
             MATH_ENV["problem_expected_solution"] = str(solution)
             return f"{format_factors(factors)} = {get_number_hint(solution)}"
 
 
 def generate_division_problem():
-    x = random.randint(1, 10) * 10
+    x = RNG.randint(1, 10) * 10
     y = x // 10
     solution = x // y
     MATH_ENV["problem_expected_solution"] = str(solution)
@@ -322,9 +333,10 @@ def generate_division_problem():
 
 
 def generate_new_math_question(normalized_input):
-    dice_roll = random.randint(1, 4)
+    dice_roll = RNG.randint(1, 4)
+    output = generate_new_addition_problem()
     if dice_roll == 1:
-        output = generate_new_addition_problem()
+        pass
     elif dice_roll == 2:
         output = generate_new_subtraction_problem()
     elif dice_roll == 3:
@@ -335,12 +347,13 @@ def generate_new_math_question(normalized_input):
 
 
 def generate_new_math_question_basic(add_sub_max=20, mul_div_max=10):
-    op = random.choice(["+", "-"])
+    op = RNG.choice(["+", "-"])
+    x, y = 0, 0
     if op in ["+", "-"]:
-        x, y = random.randint(0, add_sub_max), random.randint(0, add_sub_max)
+        x, y = RNG.randint(0, add_sub_max), RNG.randint(0, add_sub_max)
         x, y = max(x, y), min(x, y)
     elif op == "*":
-        x, y = random.randint(1, mul_div_max), random.randint(1, mul_div_max)
+        x, y = RNG.randint(1, mul_div_max), RNG.randint(1, mul_div_max)
     MATH_ENV["problem_x"] = x
     MATH_ENV["problem_y"] = y
     MATH_ENV["problem_op"] = op
@@ -410,6 +423,7 @@ def handle_symbol_expr(normalized_input):
 
 
 def run_loop(normalized_input, use_tqdm=True):
+    parts: list[str] = []
     try:
         parts = [num.strip() for num in normalized_input.split("...")]
         print(parts)
@@ -545,7 +559,7 @@ def display_welcome():
 
 def praise_phrase():
     options = t_list("great_options")
-    return random.choice(options)
+    return RNG.choice(options)
 
 
 def prompt_loop(prompt_text="> "):
@@ -597,11 +611,11 @@ def prompt_loop(prompt_text="> "):
                 # Already handled by Rich UI (e.g., tree display)
                 pass
             elif output is not None:
-                print(f"{random.choice(SUCCESS_EMOJIS)} {output}")
+                print(f"{RNG.choice(SUCCESS_EMOJIS)} {output}")
         except Exception:
             if DEBUG:
                 raise
-            print(f"{random.choice(FAILURE_EMOJIS)} ???")
+            print(f"{RNG.choice(FAILURE_EMOJIS)} ???")
 
 
 def main():

@@ -2,6 +2,8 @@
 Tests for the safe math evaluator.
 """
 
+import math
+
 import pytest
 
 from kidshell.core.safe_math import SafeMathError, SafeMathEvaluator, safe_eval, safe_math_operation
@@ -45,6 +47,24 @@ class TestSafeMathEvaluator:
         assert evaluator.evaluate("int(3.7)") == 3
         assert evaluator.evaluate("float(3)") == 3.0
 
+    def test_extended_math_and_science_functions(self):
+        """Test expanded middle/high-school math and science functions."""
+        evaluator = SafeMathEvaluator()
+
+        assert evaluator.evaluate("gcd(84, 30)") == 6
+        assert evaluator.evaluate("lcm(12, 18)") == 36
+        assert evaluator.evaluate("factorial(5)") == 120
+        assert evaluator.evaluate("comb(10, 3)") == 120
+        assert evaluator.evaluate("perm(5, 2)") == 20
+        assert evaluator.evaluate("percent(250, 12)") == 30.0
+        assert evaluator.evaluate("log2(8)") == 3
+        assert evaluator.evaluate("degrees(pi)") == pytest.approx(180.0)
+        assert evaluator.evaluate("radians(180)") == pytest.approx(math.pi)
+        assert evaluator.evaluate("mean([2, 4, 6, 8])") == 5.0
+        assert evaluator.evaluate("median([1, 9, 3])") == 3.0
+        assert evaluator.evaluate("stdev([1, 2, 3, 4])") == pytest.approx(1.2909944487358056)
+        assert evaluator.evaluate("hypot(3, 4)") == 5.0
+
     def test_variables(self):
         """Test evaluation with variables."""
         variables = {"x": 10, "y": 5}
@@ -58,11 +78,13 @@ class TestSafeMathEvaluator:
         """Test math constants."""
         evaluator = SafeMathEvaluator()
 
-        import math
-
         assert evaluator.evaluate("pi") == math.pi
         assert evaluator.evaluate("e") == math.e
         assert evaluator.evaluate("tau") == math.tau
+        assert evaluator.evaluate("phi") == pytest.approx((1 + math.sqrt(5)) / 2)
+
+        if "c" in evaluator.MATH_CONSTANTS:
+            assert evaluator.evaluate("c") > 2.9e8
 
     def test_dangerous_patterns_blocked(self):
         """Test that dangerous patterns are blocked."""

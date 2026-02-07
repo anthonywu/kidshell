@@ -2,6 +2,10 @@
 
 from typing import Any
 
+TranslationValue = str | list[str]
+TranslationMap = dict[str, TranslationValue]
+TranslationCatalog = dict[str, TranslationMap]
+
 
 class I18n:
     """Handle internationalization and translation."""
@@ -14,7 +18,7 @@ class I18n:
             language: Language code (e.g., "en", "zh_CN")
         """
         self.language = language
-        self.translations = {
+        self.translations: TranslationCatalog = {
             "en": {
                 "today_is": "Today is",
                 "date_format": "%A, %B %d",
@@ -57,6 +61,9 @@ class I18n:
         lang_dict = self.translations.get(self.language, self.translations["en"])
         template = lang_dict.get(key, self.translations["en"].get(key, key))
 
+        if not isinstance(template, str):
+            return key
+
         if kwargs:
             return template.format(**kwargs)
         return template
@@ -72,7 +79,10 @@ class I18n:
             Translated list
         """
         lang_dict = self.translations.get(self.language, self.translations["en"])
-        return lang_dict.get(key, self.translations["en"].get(key, []))
+        value = lang_dict.get(key, self.translations["en"].get(key, []))
+        if isinstance(value, list):
+            return [str(item) for item in value]
+        return []
 
 
 # Global I18n instance

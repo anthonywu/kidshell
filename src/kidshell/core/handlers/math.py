@@ -48,6 +48,8 @@ class MathHandler(Handler):
                 clean_expr = f"{session.math_env.get('last_number', 0)} {clean_expr}"
 
             # Create safe evaluator with session's math environment
+            # User expressions always flow through SafeMathEvaluator (Monty + guards),
+            # never Python eval/exec.
             evaluator = SafeMathEvaluator(variables=session.math_env)
 
             # Evaluate expression safely

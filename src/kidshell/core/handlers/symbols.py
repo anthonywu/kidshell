@@ -103,17 +103,41 @@ class SymbolHandler(Handler):
                                 },
                             )
                         except Exception:
-                            # If evaluation fails, store as symbolic expression
-                            pass
+                            # If numeric evaluation fails, treat assignment value as symbolic.
+                            expr_parts = self.parse_symbol_parts(value_str)
+                            for part in expr_parts:
+                                if isinstance(part, bytes):
+                                    part_str = part.decode("utf-8", errors="ignore").strip()
+                                else:
+                                    part_str = str(part).strip()
+                                if part_str and not part_str.isnumeric() and part_str not in session.symbols_env:
+                                    session.symbols_env[part_str] = symbols(part_str)
+
+                            evaluator = SafeMathEvaluator(variables=session.symbols_env)
+                            value = evaluator.evaluate(value_str)
+                            session.symbols_env[var_name] = value
+                            session.math_env[var_name] = value
+                            return Response(
+                                type=ResponseType.SYMBOL_RESULT,
+                                content={
+                                    "symbol": var_name,
+                                    "value": value,
+                                    "action": "assigned",
+                                },
+                            )
 
             # Symbolic expression
             expr_parts = self.parse_symbol_parts(input_text)
             for part in expr_parts:
-                part = part.strip()
-                if part and not part.isnumeric() and part not in session.symbols_env:
+                if isinstance(part, bytes):
+                    part_str = part.decode("utf-8", errors="ignore").strip()
+                else:
+                    part_str = str(part).strip()
+
+                if part_str and not part_str.isnumeric() and part_str not in session.symbols_env:
                     # Create missing symbol
-                    sym = symbols(part)
-                    session.symbols_env[part] = sym
+                    sym = symbols(part_str)
+                    session.symbols_env[part_str] = sym
 
             # Evaluate expression
             # Use safe evaluator instead of eval
