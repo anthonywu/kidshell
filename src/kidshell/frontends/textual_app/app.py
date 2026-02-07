@@ -1,6 +1,7 @@
 """
 Textual app for KidShell - provides a rich web interface.
 """
+# pyright: reportMissingImports=false
 
 from datetime import datetime
 from typing import Any

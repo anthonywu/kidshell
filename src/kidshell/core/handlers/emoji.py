@@ -35,9 +35,8 @@ class EmojiHandler(Handler):
                 pass
 
             # Try to find matches
-            matches = [
-                (k, v) for k, v in rich_emoji.EMOJI.items() if input_text in k.split("_") and "skin_tone" not in k
-            ]
+            emoji_map = getattr(rich_emoji, "EMOJI", {})
+            matches = [(k, v) for k, v in emoji_map.items() if input_text in k.split("_") and "skin_tone" not in k]
 
             if matches:
                 return Response(

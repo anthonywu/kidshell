@@ -11,6 +11,7 @@ import re
 import sys
 import time
 from datetime import date
+from typing import Any
 
 import rich.color as rich_color
 import rich.console as rich_console
@@ -61,9 +62,10 @@ def show_rich_emoji(text):
 
 
 def show_rich_emoji_match(text):
+    emoji_map = getattr(rich_emoji, "EMOJI", {})
     matches = [
         v
-        for (k, v) in rich_emoji.EMOJI.items()
+        for (k, v) in emoji_map.items()
         if all(
             (
                 text in k.split("_"),
@@ -87,12 +89,12 @@ def summarize_gibberish(text):
 
 def handle_color_name(text):
     match_found = False
+    output = rich_text.Text()
     match_text = text.replace(" ", "_")
     for color_name_var in [match_text, f"{match_text}1"]:
         try:
             rich_color.Color.parse(color_name_var)
             match_found = True
-            output = rich_text.Text()
             output.append("Color: ", style="bold white")
             output.append(text, style=f"bold {color_name_var}")
             break
@@ -180,7 +182,9 @@ except ModuleNotFoundError:
 SYMBOLS_ENV = copy.deepcopy(MATH_ENV)
 
 
-def handle_math_input(normalized_input):
+def handle_math_input(normalized_input: str | int | float) -> Any:
+    output: Any = normalized_input
+
     if isinstance(normalized_input, (int, float)):
         MATH_ENV["last_number"] = normalized_input
     elif isinstance(normalized_input, str) and normalized_input.isdigit():
@@ -191,21 +195,25 @@ def handle_math_input(normalized_input):
         RICH_UI.thinking_spinner("Calculating", 0.5)
 
     try:
-        if "=" in normalized_input:
+        if not isinstance(normalized_input, str):
+            output = normalized_input
+        elif "=" in normalized_input:
             # handle assignment safely
             from kidshell.core.safe_math import SafeMathError, SafeMathEvaluator
 
             parts = normalized_input.split("=", 1)
-            if len(parts) == 2:
-                var_name = parts[0].strip()
-                value_expr = parts[1].strip()
-                evaluator = SafeMathEvaluator(variables=MATH_ENV)
-                try:
-                    result = evaluator.evaluate(value_expr)
-                    MATH_ENV[var_name] = result
-                    output = result
-                except SafeMathError:
-                    raise TryNext("Invalid assignment")
+            if len(parts) != 2:
+                raise TryNext("Invalid assignment")
+
+            var_name = parts[0].strip()
+            value_expr = parts[1].strip()
+            evaluator = SafeMathEvaluator(variables=MATH_ENV)
+            try:
+                result = evaluator.evaluate(value_expr)
+                MATH_ENV[var_name] = result
+                output = result
+            except SafeMathError:
+                raise TryNext("Invalid assignment")
         elif any(normalized_input.startswith(op) for op in "+-*/"):
             inferred_cmd = f"{MATH_ENV['last_number']} {normalized_input}"
             print(inferred_cmd)
@@ -326,8 +334,9 @@ def generate_division_problem():
 
 def generate_new_math_question(normalized_input):
     dice_roll = RNG.randint(1, 4)
+    output = generate_new_addition_problem()
     if dice_roll == 1:
-        output = generate_new_addition_problem()
+        pass
     elif dice_roll == 2:
         output = generate_new_subtraction_problem()
     elif dice_roll == 3:
@@ -339,6 +348,7 @@ def generate_new_math_question(normalized_input):
 
 def generate_new_math_question_basic(add_sub_max=20, mul_div_max=10):
     op = RNG.choice(["+", "-"])
+    x, y = 0, 0
     if op in ["+", "-"]:
         x, y = RNG.randint(0, add_sub_max), RNG.randint(0, add_sub_max)
         x, y = max(x, y), min(x, y)
@@ -413,6 +423,7 @@ def handle_symbol_expr(normalized_input):
 
 
 def run_loop(normalized_input, use_tqdm=True):
+    parts: list[str] = []
     try:
         parts = [num.strip() for num in normalized_input.split("...")]
         print(parts)
