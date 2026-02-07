@@ -48,7 +48,7 @@ Issues = "https://github.com/anthonywu/kidshell/issues"
 Changelog = "https://github.com/anthonywu/kidshell/blob/main/CHANGELOG.md"
 
 [project.scripts]
-kidshell = "kidshell.cli.main:main"
+kidshell = "kidshell.cli.main_secure:main"
 kidshell-web = "kidshell.cli.web:main"
 
 # Modern dependency groups (PEP 735 style)

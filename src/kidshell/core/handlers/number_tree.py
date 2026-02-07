@@ -12,6 +12,7 @@ class NumberTreeHandler(Handler):
 
     def can_handle(self, input_text: str, session: Session) -> bool:
         """Check if input is a number for tree display."""
+        # Bound accepted input to keep factorization/derived operations lightweight.
         return input_text.isdigit() and 1 <= int(input_text) <= 10000
 
     def handle(self, input_text: str, session: Session) -> Response:
@@ -56,6 +57,7 @@ class NumberTreeHandler(Handler):
                 "Squared": f"{number**2}",
                 "Doubled": f"{number * 2}",
                 "Halved": f"{number / 2:.1f}",
+                # Hard cap protects against giant factorial blowups in kid experiments.
                 "Factorial": self._safe_factorial(number) if number <= 10 else "Too large",
             }
 
@@ -94,6 +96,7 @@ class NumberTreeHandler(Handler):
     def _safe_factorial(self, n: int) -> str:
         """Calculate factorial safely."""
         if n > 10:
+            # Factorial growth is superlinear; cap it for responsiveness/safety.
             return "Too large"
         result = 1
         for i in range(1, n + 1):

@@ -17,6 +17,9 @@ from kidshell.core import KidShellEngine, ResponseType, Session
 from kidshell.core.models.achievements import get_achievement
 from kidshell.core.services import DataService
 
+# Use SystemRandom for UI randomness under strict security linting.
+RNG = random.SystemRandom()
+
 # Console setup
 DEFAULT_CONSOLE = rich_console.Console(emoji=True, highlight=True, markup=True)
 print = functools.partial(DEFAULT_CONSOLE.print, end="\n\n")  # noqa: A001
@@ -35,7 +38,7 @@ class TerminalApp:
 
         # Motion emojis for achievements
         self.motion_emojis = ["🚣", "🛫", "🚋"]
-        self.today_motion_emoji = random.choice(self.motion_emojis)
+        self.today_motion_emoji = RNG.choice(self.motion_emojis)
 
         # Load custom data into session
         self.session.custom_data = dict(self.custom_data)
@@ -182,7 +185,7 @@ class TerminalApp:
     def _praise_phrase(self) -> str:
         """Get random praise phrase."""
         options = ["好棒", "真棒", "精彩", "奇妙", "Great", "Awesome", "Amazing"]
-        return random.choice(options)
+        return RNG.choice(options)
 
     def run(self):
         """Run the terminal REPL."""

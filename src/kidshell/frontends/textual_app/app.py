@@ -3,6 +3,7 @@ Textual app for KidShell - provides a rich web interface.
 """
 
 from datetime import datetime
+from typing import Any
 
 from textual import on
 from textual.app import App, ComposeResult
@@ -24,7 +25,7 @@ from kidshell.core.types import ResponseType
 class ResponseDisplay(Static):
     """Widget to display a response from the engine."""
 
-    def __init__(self, response_type: ResponseType, content: any, **kwargs):
+    def __init__(self, response_type: ResponseType, content: Any, **kwargs):
         super().__init__(**kwargs)
         self.response_type = response_type
         self.content = content

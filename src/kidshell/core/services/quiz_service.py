@@ -7,6 +7,9 @@ from uuid import uuid4
 
 from kidshell.core.safe_math import SafeMathError, safe_math_operation
 
+# Use SystemRandom to avoid predictable PRNG concerns in strict security scans.
+RNG = random.SystemRandom()
+
 
 class QuizService:
     """Generate and validate quiz questions."""
@@ -26,9 +29,9 @@ class QuizService:
 
         if difficulty == 1:
             # Easy: addition/subtraction with small numbers
-            x = random.randint(1, 10)
-            y = random.randint(1, 10)
-            op = random.choice(["+", "-"])
+            x = RNG.randint(1, 10)
+            y = RNG.randint(1, 10)
+            op = RNG.choice(["+", "-"])
 
             if op == "-":
                 # Ensure positive result
@@ -36,44 +39,44 @@ class QuizService:
 
         elif difficulty == 2:
             # Medium: larger numbers, multiplication
-            x = random.randint(1, 20)
-            y = random.randint(1, 20)
-            op = random.choice(["+", "-", "*"])
+            x = RNG.randint(1, 20)
+            y = RNG.randint(1, 20)
+            op = RNG.choice(["+", "-", "*"])
 
             if op == "-":
                 x, y = max(x, y), min(x, y)
             elif op == "*":
                 # Keep multiplication manageable
-                x = random.randint(1, 10)
-                y = random.randint(1, 10)
+                x = RNG.randint(1, 10)
+                y = RNG.randint(1, 10)
 
         elif difficulty == 3:
             # Hard: division, larger multiplication
-            op = random.choice(["+", "-", "*", "/"])
+            op = RNG.choice(["+", "-", "*", "/"])
 
             if op == "/":
                 # Create division that results in whole number
-                y = random.randint(1, 10)
-                result = random.randint(1, 10)
+                y = RNG.randint(1, 10)
+                result = RNG.randint(1, 10)
                 x = y * result
             else:
-                x = random.randint(10, 50)
-                y = random.randint(1, 20)
+                x = RNG.randint(10, 50)
+                y = RNG.randint(1, 20)
                 if op == "-":
                     x, y = max(x, y), min(x, y)
 
         else:  # difficulty >= 4
             # Expert: complex operations
-            op = random.choice(["+", "-", "*", "/"])
-            x = random.randint(10, 100)
-            y = random.randint(10, 50)
+            op = RNG.choice(["+", "-", "*", "/"])
+            x = RNG.randint(10, 100)
+            y = RNG.randint(10, 50)
 
             if op == "-":
                 x, y = max(x, y), min(x, y)
             elif op == "/":
                 # Ensure clean division
-                y = random.randint(2, 12)
-                result = random.randint(2, 20)
+                y = RNG.randint(2, 12)
+                result = RNG.randint(2, 20)
                 x = y * result
 
         # Calculate answer safely
@@ -168,7 +171,7 @@ class QuizService:
             },
         ]
 
-        pattern = random.choice(patterns)
+        pattern = RNG.choice(patterns)
         quiz_id = str(uuid4())[:8]
 
         return {

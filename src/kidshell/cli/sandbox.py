@@ -1,307 +1,172 @@
 """
-Secure sandbox implementation for kidshell.
+Secure sandbox implementation for kidshell using Monty.
 Provides multiple layers of security for executing untrusted Python code.
 """
 
-import ast
 import json
 import math
-import operator
 import pathlib
-import resource
-import sys
+import re
 from contextlib import contextmanager
 from typing import Any
+
+import pydantic_monty
+
+from kidshell.core.safe_math import SafeMathEvaluator
 
 
 class SecurityError(Exception):
     """Raised when security policy is violated"""
 
 
-class SafeMathEvaluator(ast.NodeVisitor):
+class SecureExecutor:
     """
-    AST-based safe math evaluator.
-    Only allows mathematical operations, no imports or dangerous functions.
+    Main executor with multiple security layers using Monty.
     """
 
-    SAFE_OPERATORS = {
-        ast.Add: operator.add,
-        ast.Sub: operator.sub,
-        ast.Mult: operator.mul,
-        ast.Div: operator.truediv,
-        ast.FloorDiv: operator.floordiv,
-        ast.Mod: operator.mod,
-        ast.Pow: operator.pow,
-        ast.USub: operator.neg,
-        ast.UAdd: operator.pos,
-        ast.Lt: operator.lt,
-        ast.LtE: operator.le,
-        ast.Gt: operator.gt,
-        ast.GtE: operator.ge,
-        ast.Eq: operator.eq,
-        ast.NotEq: operator.ne,
-    }
+    MAX_ALLOCATIONS = 10000
+    MAX_DURATION_SECS = 1.0
+    MAX_MEMORY_BYTES = 100 * 1024 * 1024  # 100 MB
+    MAX_EXECUTIONS = 1000
+    MAX_CODE_LENGTH = SafeMathEvaluator.MAX_STRING_LENGTH
 
-    SAFE_FUNCTIONS = {
-        "abs": abs,
-        "round": round,
-        "min": min,
-        "max": max,
-        "sum": sum,
-        "len": len,
-        "int": int,
-        "float": float,
-        "str": str,
-        "bool": bool,
-        # Math functions
-        "sin": math.sin,
-        "cos": math.cos,
-        "tan": math.tan,
-        "sqrt": math.sqrt,
-        "log": math.log,
-        "log10": math.log10,
-        "exp": math.exp,
-        "floor": math.floor,
-        "ceil": math.ceil,
-    }
-
-    MAX_NUMBER = 10**15  # Prevent huge numbers
-    MAX_ITERATIONS = 10000  # Prevent infinite loops
+    # Keep sandbox execution policy identical to SafeMathEvaluator so both paths
+    # enforce the same allowlist/denylist surface.
+    MATH_CONSTANTS = dict(SafeMathEvaluator.MATH_CONSTANTS)
+    SAFE_FUNCTIONS = dict(SafeMathEvaluator.SAFE_FUNCTIONS)
+    BLOCKED_TOKENS = tuple(SafeMathEvaluator.BLOCKED_TOKENS)
+    BLOCKED_STATEMENT_KEYWORDS = tuple(SafeMathEvaluator.BLOCKED_CONTROL_FLOW_KEYWORDS)
 
     def __init__(self, variables: dict[str, Any] | None = None):
         self.variables = variables or {}
-        self.iteration_count = 0
+        self.execution_count = 0
+        self._monty_cache: dict[tuple[str, tuple[tuple[str, Any], ...]], pydantic_monty.Monty] = {}
 
-    def evaluate(self, expression: str) -> Any:
-        """Safely evaluate mathematical expression"""
-        # Input validation
-        if len(expression) > 1000:
-            raise SecurityError("Expression too long")
-
-        # Check for dangerous patterns
-        dangerous_patterns = [
-            "__",
-            "import",
-            "exec",
-            "eval",
-            "compile",
-            "open",
-            "file",
-            "input",
-            "raw_input",
-            "globals",
-            "locals",
-            "vars",
-            "dir",
-            "getattr",
-            "setattr",
-            "delattr",
-            "hasattr",
-            "classmethod",
-            "staticmethod",
-            "property",
-            "super",
-            "type",
-            "object",
-            "bytes",
-            "bytearray",
-        ]
-
-        expr_lower = expression.lower()
-        for pattern in dangerous_patterns:
-            if pattern in expr_lower:
-                raise SecurityError(f"Unsafe pattern: {pattern}")
-
+    @staticmethod
+    def _cache_safe_value(value: Any) -> Any:
         try:
-            tree = ast.parse(expression, mode="eval")
-            result = self.visit(tree.body)
+            hash(value)
+            return value
+        except TypeError:
+            # Cache keys must be hashable; repr avoids executing user-provided objects.
+            return repr(value)
 
-            # Validate result
-            if isinstance(result, (int, float)):
-                if abs(result) > self.MAX_NUMBER:
-                    raise SecurityError(f"Number too large: {result}")
+    @classmethod
+    def _find_blocked_pattern(cls, code: str) -> str | None:
+        lowered = code.lower()
+        if "__" in lowered:
+            # Dunder access can enable object introspection/escape attempts.
+            return "__"
+
+        for token in cls.BLOCKED_TOKENS:
+            if re.search(rf"\b{re.escape(token)}\b", lowered):
+                # Token denylist blocks dangerous capabilities before execution.
+                return token
+
+        return None
+
+    @classmethod
+    def _contains_blocked_statement(cls, code: str) -> bool:
+        # Restrict to expression-style commands to avoid hidden control-flow payloads.
+        return bool(re.match(rf"^\s*(?:{'|'.join(cls.BLOCKED_STATEMENT_KEYWORDS)})\b", code, flags=re.IGNORECASE))
+
+    @classmethod
+    def _build_cache_key(cls, code: str, inputs: dict[str, Any]) -> tuple[str, tuple[tuple[str, Any], ...]]:
+        frozen_items = tuple(sorted((key, cls._cache_safe_value(value)) for key, value in inputs.items()))
+        return code, frozen_items
+
+    def execute(self, code: str, timeout: float = 1.0) -> Any:
+        """
+        Execute code with multiple security layers using Monty.
+        """
+        stripped_code = code.strip()
+        if not stripped_code:
+            # Empty input is rejected to keep parser behavior deterministic.
+            raise SecurityError("Empty code not allowed")
+
+        if len(code) > self.MAX_CODE_LENGTH:
+            # Input length cap avoids oversized payload abuse.
+            raise SecurityError("Code too long")
+
+        blocked_pattern = self._find_blocked_pattern(code)
+        if blocked_pattern:
+            # Immediate token-level rejection for clearly unsafe content.
+            raise SecurityError(f"Unsafe pattern: {blocked_pattern}")
+
+        if self._contains_blocked_statement(code):
+            # Explicitly disallow statement-level control flow in sandbox commands.
+            raise SecurityError("Complex control flow not allowed")
+
+        # Rate limiting
+        self.execution_count += 1
+        if self.execution_count > self.MAX_EXECUTIONS:
+            # Per-session rate limit helps stop brute-force probing of the sandbox.
+            raise SecurityError("Execution limit exceeded")
+
+        # Use Monty for secure execution
+        try:
+            inputs = dict(self.MATH_CONSTANTS)
+            inputs.update(self.variables)
+            external_functions = dict(self.SAFE_FUNCTIONS)
+
+            limits = pydantic_monty.ResourceLimits(
+                # Hard execution caps: allocations, runtime, and memory.
+                max_allocations=self.MAX_ALLOCATIONS,
+                max_duration_secs=min(timeout, self.MAX_DURATION_SECS),
+                max_memory=self.MAX_MEMORY_BYTES,
+            )
+
+            # Check if we have a cached Monty instance
+            cache_key = self._build_cache_key(code, inputs)
+            if cache_key not in self._monty_cache:
+                # Compile once per input-signature and only expose allowlisted names.
+                self._monty_cache[cache_key] = pydantic_monty.Monty(
+                    code,
+                    inputs=list(inputs.keys()),
+                    external_functions=list(external_functions.keys()),
+                    type_check=False,
+                )
+
+            m = self._monty_cache[cache_key]
+            result = m.run(
+                inputs=inputs,
+                external_functions=external_functions,
+                limits=limits,
+            )
 
             return result
 
-        except (SyntaxError, ValueError) as e:
-            raise SecurityError(f"Invalid expression: {e}")
+        except (pydantic_monty.MontySyntaxError, pydantic_monty.MontyRuntimeError) as e:
+            error_message = str(e).lower()
+            if "time limit exceeded" in error_message or "timeouterror" in error_message:
+                # Normalize engine-specific timeout wording.
+                raise SecurityError("Execution timeout")
+            if "memory limit exceeded" in error_message or "memoryerror" in error_message:
+                # Normalize engine-specific memory wording.
+                raise SecurityError("Memory limit exceeded")
+            if "division by zero" in error_message:
+                # Normalize arithmetic faults to stable external behavior.
+                raise SecurityError("Division by zero")
+            raise SecurityError(f"Execution error: {e}")
+        except MemoryError:
+            raise SecurityError("Memory limit exceeded")
+        except TimeoutError:
+            raise SecurityError("Execution timeout")
+        except Exception as e:
+            raise SecurityError(f"Execution error: {e}")
 
-    def visit_BinOp(self, node):
-        left = self.visit(node.left)
-        right = self.visit(node.right)
-        op = self.SAFE_OPERATORS.get(type(node.op))
-
-        if not op:
-            raise SecurityError(f"Unsafe operator: {type(node.op).__name__}")
-
-        # Prevent division by zero
-        if isinstance(node.op, (ast.Div, ast.FloorDiv, ast.Mod)) and right == 0:
-            raise SecurityError("Division by zero")
-
-        return op(left, right)
-
-    def visit_UnaryOp(self, node):
-        operand = self.visit(node.operand)
-        op = self.SAFE_OPERATORS.get(type(node.op))
-
-        if not op:
-            raise SecurityError(f"Unsafe operator: {type(node.op).__name__}")
-
-        return op(operand)
-
-    def visit_Compare(self, node):
-        left = self.visit(node.left)
-
-        for op, comparator in zip(node.ops, node.comparators, strict=False):
-            op_func = self.SAFE_OPERATORS.get(type(op))
-            if not op_func:
-                raise SecurityError(f"Unsafe operator: {type(op).__name__}")
-
-            right = self.visit(comparator)
-            if not op_func(left, right):
-                return False
-            left = right
-
-        return True
-
-    def visit_Constant(self, node):
-        # Python 3.8+ uses Constant
-        value = node.value
-
-        if isinstance(value, (int, float)):
-            if abs(value) > self.MAX_NUMBER:
-                raise SecurityError(f"Number too large: {value}")
-
-        return value
-
-    def visit_Num(self, node):
-        # Backward compatibility for Python < 3.8
-        value = node.n
-
-        if abs(value) > self.MAX_NUMBER:
-            raise SecurityError(f"Number too large: {value}")
-
-        return value
-
-    def visit_Name(self, node):
-        name = node.id
-
-        # Check variables
-        if name in self.variables:
-            return self.variables[name]
-
-        # Check safe functions
-        if name in self.SAFE_FUNCTIONS:
-            return self.SAFE_FUNCTIONS[name]
-
-        # Math constants
-        if name in ("pi", "e", "tau"):
-            return getattr(math, name)
-
-        raise SecurityError(f"Unknown variable: {name}")
-
-    def visit_Call(self, node):
-        func = self.visit(node.func)
-
-        if not callable(func):
-            raise SecurityError("Not a function")
-
-        if func not in self.SAFE_FUNCTIONS.values():
-            raise SecurityError("Unsafe function call")
-
-        args = [self.visit(arg) for arg in node.args]
-
-        # No keyword arguments allowed for simplicity
-        if node.keywords:
-            raise SecurityError("Keyword arguments not allowed")
-
-        return func(*args)
-
-    def visit_List(self, node):
-        self.iteration_count += len(node.elts)
-        if self.iteration_count > self.MAX_ITERATIONS:
-            raise SecurityError("Too many iterations")
-
-        return [self.visit(elt) for elt in node.elts]
-
-    def visit_Tuple(self, node):
-        self.iteration_count += len(node.elts)
-        if self.iteration_count > self.MAX_ITERATIONS:
-            raise SecurityError("Too many iterations")
-
-        return tuple(self.visit(elt) for elt in node.elts)
-
-    def generic_visit(self, node):
-        raise SecurityError(f"Unsafe node type: {type(node).__name__}")
+    def reset_limits(self):
+        """Reset rate limiting counter"""
+        self.execution_count = 0
 
 
 @contextmanager
 def resource_limits(cpu_time: int = 1, memory_mb: int = 100):
     """
     Context manager to set resource limits.
-    Only works on Unix-like systems.
+    Uses Monty's built-in resource limits instead of OS-level limits.
     """
-    if sys.platform == "win32":
-        # Windows doesn't support resource module
-        yield
-        return
-
-    old_limits = {}
-
-    try:
-        # Save old limits
-        old_limits["cpu"] = resource.getrlimit(resource.RLIMIT_CPU)
-        old_limits["memory"] = resource.getrlimit(resource.RLIMIT_AS)
-
-        # Set new limits
-        resource.setrlimit(resource.RLIMIT_CPU, (cpu_time, cpu_time))
-
-        # Memory limit in bytes
-        memory_bytes = memory_mb * 1024 * 1024
-        resource.setrlimit(resource.RLIMIT_AS, (memory_bytes, memory_bytes))
-
-        yield
-
-    finally:
-        # Restore old limits
-        for key, limit in old_limits.items():
-            if key == "cpu":
-                resource.setrlimit(resource.RLIMIT_CPU, limit)
-            elif key == "memory":
-                resource.setrlimit(resource.RLIMIT_AS, limit)
-
-
-class SecureExecutor:
-    """
-    Main executor with multiple security layers.
-    """
-
-    def __init__(self, variables: dict[str, Any] | None = None):
-        self.evaluator = SafeMathEvaluator(variables)
-        self.execution_count = 0
-        self.MAX_EXECUTIONS = 1000  # Rate limiting
-
-    def execute(self, code: str, timeout: float = 1.0) -> Any:
-        """
-        Execute code with multiple security layers.
-        """
-        # Rate limiting
-        self.execution_count += 1
-        if self.execution_count > self.MAX_EXECUTIONS:
-            raise SecurityError("Execution limit exceeded")
-
-        # Try AST-based evaluation first (safest)
-        try:
-            return self.evaluator.evaluate(code)
-        except SecurityError:
-            raise
-        except Exception as e:
-            # If it's not a simple expression, reject it
-            raise SecurityError(f"Complex code not allowed: {e}")
-
-    def reset_limits(self):
-        """Reset rate limiting counter"""
-        self.execution_count = 0
+    yield
 
 
 def validate_data_path(base_dir: str, file_path: str) -> pathlib.Path:
@@ -310,19 +175,27 @@ def validate_data_path(base_dir: str, file_path: str) -> pathlib.Path:
     Prevents path traversal attacks.
     """
     base = pathlib.Path(base_dir).resolve()
-    target = pathlib.Path(file_path).resolve()
+    raw_target = pathlib.Path(file_path)
+    # Resolve relative paths against the trusted base directory, not process CWD.
+    candidate = raw_target if raw_target.is_absolute() else base / raw_target
+
+    # Check symlink on the unresolved candidate path.
+    if candidate.exists() and candidate.is_symlink():
+        # Symlink traversal can bypass containment checks.
+        raise SecurityError("Symbolic links not allowed")
+
+    target = candidate.resolve()
 
     # Ensure target is within base directory
     try:
         target.relative_to(base)
     except ValueError:
+        # Reject any path that escapes base_dir after full resolution.
         raise SecurityError(f"Path traversal detected: {file_path}")
 
     # Additional checks
-    if target.is_symlink():
-        raise SecurityError("Symbolic links not allowed")
-
-    if not target.suffix == ".data":
+    if target.suffix != ".data":
+        # Narrow file-type surface for sandboxed data payloads.
         raise SecurityError("Only .data files allowed")
 
     return target
@@ -334,6 +207,7 @@ def safe_json_load(file_path: pathlib.Path, max_size: int = 1024 * 1024) -> dict
     """
     # Check file size
     if file_path.stat().st_size > max_size:
+        # Avoid loading oversized files into memory.
         raise SecurityError(f"File too large: {file_path}")
 
     try:
@@ -346,11 +220,13 @@ def safe_json_load(file_path: pathlib.Path, max_size: int = 1024 * 1024) -> dict
 
             # Validate structure (basic check)
             if not isinstance(data, dict):
+                # Only object-shaped payloads are expected by callers.
                 raise SecurityError("JSON must be an object")
 
             # Limit nesting depth
             def check_depth(obj, depth=0, max_depth=10):
                 if depth > max_depth:
+                    # Depth cap prevents recursive/nested payload abuse.
                     raise SecurityError("JSON nesting too deep")
 
                 if isinstance(obj, dict):
@@ -375,28 +251,28 @@ def safe_integer(value: float, max_value: int = 10**15) -> int:
     Safely convert to integer with bounds checking.
     """
     if isinstance(value, float):
-        if not value.is_finite():
+        if not math.isfinite(value):
+            # Explicitly reject NaN/Inf before conversion.
             raise SecurityError(f"Invalid number: {value}")
-
-        if value != value:  # NaN check
-            raise SecurityError("NaN not allowed")
 
         # Check if it's a whole number
         if value.is_integer() and abs(value) <= max_value:
             return int(value)
+        # Reject fractional or huge float payloads.
         raise SecurityError(f"Number out of range: {value}")
 
     if isinstance(value, int):
         if abs(value) > max_value:
+            # Bound integer size to avoid untrusted extreme values.
             raise SecurityError(f"Number too large: {value}")
         return value
 
+    # Reject non-numeric inputs outright.
     raise SecurityError(f"Not a number: {value}")
 
 
 # Export main components
 __all__ = [
-    "SafeMathEvaluator",
     "SecureExecutor",
     "SecurityError",
     "resource_limits",

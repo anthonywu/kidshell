@@ -35,6 +35,7 @@ class DataService:
         # Try all files in the directory
         for data_file in data_path.iterdir():
             if data_file.is_file() and not data_file.name.startswith("."):
+                # Skip dotfiles to avoid accidentally loading editor/system artifacts.
                 try:
                     with data_file.open(encoding="utf-8") as f:
                         data_part = json.load(f)
