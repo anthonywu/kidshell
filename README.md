@@ -60,7 +60,7 @@ just run                        # Run kidshell
 
 ## Custom Data Configuration
 
-kidshell supports custom input→output mappings stored in platform-specific directories:
+kidshell supports custom input→output mappings stored under `~/.kidshell/data/`:
 
 ```bash
 # Edit custom data
@@ -69,6 +69,14 @@ kidshell config edit mydata.json # Create/edit specific file
 kidshell config list            # List all data files
 kidshell config info            # Show config locations
 ```
+
+Default local layout is:
+- `~/.kidshell/config/` for configuration
+- `~/.kidshell/data/` for custom data files
+- `~/.kidshell/history` for CLI history
+
+Optional override:
+- Set `KIDSHELL_HOME=/custom/path` to relocate all of the above under that directory.
 
 Data files are JSON with custom mappings:
 

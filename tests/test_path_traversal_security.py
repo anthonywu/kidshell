@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from kidshell.core.config import ConfigManager
+from kidshell.core.config import ConfigManager, get_app_home_dir
 
 
 class TestPathTraversalSecurity:
@@ -150,6 +150,20 @@ class TestPathTraversalSecurity:
                 # Clean up
                 if full_path.exists() and full_path.is_file():
                     full_path.unlink()
+
+    def test_kidshell_home_override(self, monkeypatch):
+        """Test that KIDSHELL_HOME overrides default ~/.kidshell base path."""
+        custom_home = "/tmp/kidshell-test-home"
+        monkeypatch.setenv("KIDSHELL_HOME", custom_home)
+        assert get_app_home_dir() == Path(custom_home)
+
+    def test_config_info_exposes_base_and_history(self):
+        """Test config info includes base, history, and profile paths."""
+        config = ConfigManager()
+        info = config.get_config_info()
+        assert "base_dir" in info
+        assert "history_file" in info
+        assert "profile_file" in info
 
 
 if __name__ == "__main__":

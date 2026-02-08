@@ -209,6 +209,13 @@ kidshell/
 
 By default, all standard run paths (`kidshell`, `python -m kidshell`, and `just run`) use secure sandboxing and safe evaluators for user input.
 
+Runtime files now use the unified `~/.kidshell/` layout:
+- `~/.kidshell/config/`
+- `~/.kidshell/data/`
+- `~/.kidshell/history`
+
+Set `KIDSHELL_HOME=/custom/path` to relocate this layout for local development or CI isolation.
+
 All tool configurations are in `pyproject.toml`:
 
 - **[build-system]**: Uses uv_build for modern packaging

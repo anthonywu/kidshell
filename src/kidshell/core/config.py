@@ -1,4 +1,4 @@
-"""Configuration management using platformdirs."""
+"""Configuration management for the ~/.kidshell directory layout."""
 
 import json
 import logging
@@ -10,15 +10,22 @@ import subprocess
 import sys
 from typing import Any
 
-import platformdirs
 from requests.structures import CaseInsensitiveDict
 
 # Set up logging
 logger = logging.getLogger(__name__)
 
 
+def get_app_home_dir(app_name: str = "kidshell") -> pathlib.Path:
+    """Return application home directory (e.g. ~/.kidshell), with env override."""
+    if custom_home := os.environ.get("KIDSHELL_HOME"):
+        # Explicit override supports portable setups and automated test isolation.
+        return pathlib.Path(custom_home).expanduser()
+    return pathlib.Path.home() / f".{app_name}"
+
+
 class ConfigManager:
-    """Manage kidshell configuration using platform-specific directories."""
+    """Manage kidshell configuration under a dedicated home directory."""
 
     def __init__(self, app_name: str = "kidshell"):
         """
@@ -28,10 +35,14 @@ class ConfigManager:
             app_name: Application name for directory creation
         """
         self.app_name = app_name
-        self.config_dir = pathlib.Path(platformdirs.user_config_dir(app_name))
-        self.data_dir = pathlib.Path(platformdirs.user_data_dir(app_name))
+        self.base_dir = get_app_home_dir(app_name)
+        self.config_dir = self.base_dir / "config"
+        self.data_dir = self.base_dir / "data"
+        self.history_file = self.base_dir / "history"
+        self.profile_file = self.config_dir / "profile.json"
 
-        # Ensure directories exist
+        # Ensure directory layout exists (major-version path convention; no migration attempted).
+        self.base_dir.mkdir(parents=True, exist_ok=True)
         self.config_dir.mkdir(parents=True, exist_ok=True)
         self.data_dir.mkdir(parents=True, exist_ok=True)
 
@@ -201,10 +212,14 @@ class ConfigManager:
             Dictionary with config paths and info
         """
         return {
+            "base_dir": str(self.base_dir),
             "config_dir": str(self.config_dir),
             "data_dir": str(self.data_dir),
+            "history_file": str(self.history_file),
+            "profile_file": str(self.profile_file),
             "data_files": [f.name for f in self.list_data_files()],
             "platform": sys.platform,
+            **({"KIDSHELL_HOME": os.environ["KIDSHELL_HOME"]} if "KIDSHELL_HOME" in os.environ else {}),
         }
 
 

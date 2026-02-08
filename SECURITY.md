@@ -32,7 +32,7 @@ The application prevents directory traversal attacks that could allow unauthoriz
 
 ### File System Safety
 
-- All file operations are confined to user-specific directories via `platformdirs`
+- All file operations are confined to the dedicated `~/.kidshell/` directory layout
 - Creates files with safe defaults (`{}` for JSON files)
 - Proper error handling prevents information leakage through stack traces
 - Permission errors are caught and handled gracefully
@@ -49,7 +49,7 @@ If `kidshell` gets traction in real edu environments, I will post a email for no
 
 1. **Run with Limited Privileges**: Never run kidshell with administrator/root privileges
 2. **Monitor Custom Data**: Review any custom JSON data files before loading
-3. **Use Platform Directories**: Let kidshell use platform-specific directories rather than custom paths
+3. **Use App Home Directory**: Let kidshell use the default `~/.kidshell/` layout rather than ad-hoc paths
 4. **Keep Updated**: Always use the latest version for security patches
 
 ### For Developers

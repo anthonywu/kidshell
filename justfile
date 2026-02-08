@@ -78,7 +78,16 @@ build: fix clean
 
 # Run the application
 run:
-    uv run python -m kidshell
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # Wrap in `script` when available so Ctrl-C only shows KidShell's friendly goodbye.
+    if script -q /dev/null true >/dev/null 2>&1; then
+        script -q /dev/null uv run -q python -m kidshell
+    elif script -q -c "true" /dev/null >/dev/null 2>&1; then
+        script -q -c "uv run -q python -m kidshell" /dev/null
+    else
+        uv run -q python -m kidshell
+    fi
 
 # Run in debug mode
 debug:
@@ -86,7 +95,17 @@ debug:
 
 # Run with custom prompt
 run-with-prompt prompt="> ":
-    uv run python -c "from kidshell.cli.main import prompt_loop; prompt_loop('{{prompt}}')"
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cmd="uv run -q python -c \"from kidshell.cli.main import prompt_loop; prompt_loop('{{prompt}}')\""
+    # Keep wrapper behavior consistent so Ctrl-C exits quietly in prompt testing mode too.
+    if script -q /dev/null true >/dev/null 2>&1; then
+        script -q /dev/null uv run -q python -c "from kidshell.cli.main import prompt_loop; prompt_loop('{{prompt}}')"
+    elif script -q -c "true" /dev/null >/dev/null 2>&1; then
+        script -q -c "$cmd" /dev/null
+    else
+        uv run -q python -c "from kidshell.cli.main import prompt_loop; prompt_loop('{{prompt}}')"
+    fi
 
 # Development workflow: format, lint, type-check, test
 all: format lint type-check test

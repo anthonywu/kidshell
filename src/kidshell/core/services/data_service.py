@@ -6,6 +6,8 @@ import pathlib
 
 from requests.structures import CaseInsensitiveDict
 
+from kidshell.core.config import get_config_manager
+
 # Set up logging
 logger = logging.getLogger(__name__)
 
@@ -14,20 +16,23 @@ class DataService:
     """Load and manage custom data files."""
 
     @staticmethod
-    def load_data_files(data_dir: str = "./data") -> CaseInsensitiveDict:
+    def load_data_files(data_dir: str | None = None) -> CaseInsensitiveDict:
         """
         Load data files from directory.
 
         Tries to parse any file as JSON regardless of extension.
 
         Args:
-            data_dir: Directory containing data files
+            data_dir: Directory containing data files. Defaults to ~/.kidshell/data.
 
         Returns:
             CaseInsensitiveDict with combined data
         """
         combined_data = CaseInsensitiveDict()
-        data_path = pathlib.Path(data_dir)
+        if data_dir is None:
+            data_path = get_config_manager().data_dir
+        else:
+            data_path = pathlib.Path(data_dir)
 
         if not data_path.exists():
             return combined_data

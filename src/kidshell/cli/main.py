@@ -1,4 +1,5 @@
 import argparse
+import atexit
 import copy
 import functools
 import json
@@ -11,6 +12,7 @@ import re
 import sys
 import time
 from datetime import date
+from pathlib import Path
 from typing import Any
 
 import rich.color as rich_color
@@ -22,7 +24,24 @@ from sympy import symbols
 
 # Import our new Rich UI module
 from kidshell.cli.rich_ui import create_rich_ui
+from kidshell.core.config import get_app_home_dir
 from kidshell.core.i18n import set_language, t, t_list
+from kidshell.core.profile import (
+    ChildProfile,
+    calculate_age,
+    load_profile,
+    next_birthday_details,
+    onboarding_intro_lines,
+    parse_birth_value,
+    parse_month_day_value,
+    sanitize_name,
+    save_profile,
+)
+
+try:
+    import readline
+except ImportError:  # pragma: no cover - platform dependent (e.g., minimal Windows builds)
+    readline = None  # type: ignore[assignment]
 
 DEFAULT_CONSOLE = rich_console.Console(emoji=True, highlight=True, markup=True)
 print = functools.partial(
@@ -51,6 +70,34 @@ TODAY_MOTION_EMOJI = RNG.choice(MOTION_EMOJIS)
 
 class TryNext(ValueError):
     pass
+
+
+def enable_readline_history() -> None:
+    """Enable readline editing/history so arrow keys recall previous commands."""
+    if readline is None or not sys.stdin.isatty():
+        return
+
+    history_file = get_app_home_dir() / "history"
+    history_file.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        readline.parse_and_bind("set editing-mode emacs")
+        readline.parse_and_bind("tab: complete")
+
+        if history_file.exists():
+            readline.read_history_file(history_file)
+
+        def _write_history() -> None:
+            try:
+                if readline is not None:
+                    readline.write_history_file(history_file)
+            except Exception:
+                # History persistence must never break the interactive shell.
+                pass
+
+        atexit.register(_write_history)
+    except Exception:
+        # Readline availability is best-effort; fall back to plain input safely.
+        pass
 
 
 def show_rich_emoji(text):
@@ -118,7 +165,7 @@ def read_data_files(data_dir="./data"):
 
     config_manager = get_config_manager()
 
-    # First try the new platform-specific location
+    # First try the ~/.kidshell/data location
     combined_data = config_manager.load_data_files()
 
     # Also check the legacy ./data directory if it exists
@@ -406,7 +453,12 @@ def handle_symbol_lookup(normalized_input):
 
 
 def handle_symbol_expr(normalized_input):
-    expr_parts = parse_symbol_parts(normalized_input)
+    # Keep purely numeric arithmetic on the literal-math path so UI rendering is consistent.
+    if not any(ch.isalpha() for ch in normalized_input):
+        raise TryNext("Use literal math evaluator for numeric-only expressions.")
+
+    # Coerce split parts to plain strings so type-checkers can verify string-only operations.
+    expr_parts = [str(part) for part in parse_symbol_parts(normalized_input)]
     for part in expr_parts:
         if not (part.isalnum() or part.isnumeric()):
             raise TryNext("Ops only possible for alphanumeric var names.")
@@ -528,33 +580,134 @@ HANDLERS = [
 ]
 
 
-def display_age():
+def get_profile_path() -> Path:
+    """Return persisted child profile path under ~/.kidshell/config."""
+    from kidshell.core.config import get_config_manager
+
+    return get_config_manager().profile_file
+
+
+def load_child_profile(today: date | None = None) -> ChildProfile | None:
+    """Load persisted profile if present and valid."""
+    return load_profile(get_profile_path(), today=today)
+
+
+def run_onboarding(
+    input_func=input,
+    output_func=print,
+    today: date | None = None,
+) -> ChildProfile | None:
+    """Collect first-run profile data interactively and persist it."""
+    today_value = today or date.today()
+    profile_path = get_profile_path()
+    existing_profile = load_profile(profile_path, today=today_value)
+    if existing_profile is not None:
+        return existing_profile
+
+    for line in onboarding_intro_lines():
+        output_func(line)
+
+    while True:
+        raw_name = input_func("What is your name? ").strip()
+        name = sanitize_name(raw_name)
+        if name:
+            break
+        # Rejecting malformed names avoids storing control chars that can corrupt terminal output.
+        output_func("Please enter a short name using letters, numbers, spaces, or .'-")
+
+    while True:
+        raw_birth = input_func("Birth year (YYYY) or full birthday (YYYY-MM-DD): ").strip()
+        try:
+            birth_year, full_birthday = parse_birth_value(raw_birth, today=today_value)
+            break
+        except ValueError as exc:
+            output_func(str(exc))
+
+    birthday_iso = full_birthday.isoformat() if full_birthday else None
+    if birthday_iso is None:
+        month_day = input_func("Optional month/day for birthday countdown (MM-DD), or press Enter to skip: ").strip()
+        while month_day:
+            try:
+                birthday_iso = parse_month_day_value(month_day, birth_year, today=today_value).isoformat()
+                break
+            except ValueError as exc:
+                output_func(str(exc))
+                month_day = input_func(
+                    "Optional month/day for birthday countdown (MM-DD), or press Enter to skip: "
+                ).strip()
+
+    profile = ChildProfile(name=name, birth_year=birth_year, birthday=birthday_iso)
     try:
-        # bday_parts: yyyy, mm, dd
+        save_profile(profile_path, profile)
+    except OSError:
+        # Failure to save profile should not stop the child from using the shell.
+        output_func("Couldn't save your profile yet, but we can still keep going.")
+    return profile
+
+
+def ensure_child_profile(
+    input_func=input,
+    output_func=print,
+    today: date | None = None,
+    is_tty: bool | None = None,
+) -> ChildProfile | None:
+    """Load profile or run first-time onboarding when interactive."""
+    today_value = today or date.today()
+    existing_profile = load_child_profile(today=today_value)
+    if existing_profile is not None:
+        return existing_profile
+
+    interactive_tty = sys.stdin.isatty() if is_tty is None else is_tty
+    if not interactive_tty:
+        # Non-interactive invocations (e.g., piped commands/tests) must never block on onboarding input.
+        return None
+    return run_onboarding(input_func=input_func, output_func=output_func, today=today_value)
+
+
+def display_age(profile: ChildProfile | None = None, today: date | None = None) -> None:
+    """Display age and birthday countdown when available."""
+    today_value = today or date.today()
+
+    if profile is not None:
+        output_name = sanitize_name(profile.name) or "friend"
+        age = calculate_age(profile, today=today_value)
+        print(f"Hi {output_name}! You are {age} years old.")
+        next_birthday = next_birthday_details(profile, today=today_value)
+        if next_birthday is not None:
+            days_until_bday, next_age = next_birthday
+            if days_until_bday == 0:
+                print(f"Happy birthday, {output_name}! You are now {next_age}.")
+            else:
+                print(f"Your next birthday is in {days_until_bday} days. You will turn {next_age}.")
+        return
+
+    try:
+        # Legacy fallback for custom data entries using "bday": "yyyy.mm.dd".
         bday_parts = [int(x) for x in CUSTOM_DATA["bday"].split(".")]
-        age_float = (date.today() - date(*bday_parts)).days / 365
-        print(
-            t("birthday_msg", year=bday_parts[0], month=bday_parts[1], day=bday_parts[2]),
+        legacy_profile = ChildProfile(
+            name="friend",
+            birth_year=bday_parts[0],
+            birthday=date(*bday_parts).isoformat(),
         )
-        print(
-            t("age_msg", age=age_float),
-        )
-        next_age = int(math.ceil(age_float))
-        next_bday = date(bday_parts[0] + next_age, bday_parts[1], bday_parts[2])
-        days_until_bday = (next_bday - date.today()).days
-        print(
-            t("next_birthday", age=next_age, days=days_until_bday),
-        )
+        age = calculate_age(legacy_profile, today=today_value)
+        print(t("birthday_msg", year=bday_parts[0], month=bday_parts[1], day=bday_parts[2]))
+        print(t("age_msg", age=age))
+        next_birthday = next_birthday_details(legacy_profile, today=today_value)
+        if next_birthday is not None:
+            days_until_bday, next_age = next_birthday
+            print(t("next_birthday", age=next_age, days=days_until_bday))
     except (KeyError, ValueError):
-        # bday data not provided
+        # No valid birthday data configured.
         pass
 
 
-def display_welcome():
+def display_welcome(profile: ChildProfile | None = None, today: date | None = None) -> None:
+    """Display date + personalized greeting."""
+    today_value = today or date.today()
     date_format = t("date_format")
-    print(f"{t('today_is')} {date.today().strftime(date_format)}")
+    print(f"{t('today_is')} {today_value.strftime(date_format)}")
     print()
-    display_age()
+    display_age(profile=profile, today=today_value)
 
 
 def praise_phrase():
@@ -562,8 +715,34 @@ def praise_phrase():
     return RNG.choice(options)
 
 
+def normalize_user_input(user_input: str) -> str:
+    """Normalize user input and strip pasted prompt markers like '> 1 + 1'."""
+    normalized = user_input.lower().strip()
+    while normalized.startswith(">"):
+        normalized = normalized[1:].strip()
+    return normalized
+
+
+def apply_history_escape_fallback(user_input: str, last_user_input: str) -> str | None:
+    """Handle pasted/raw ANSI arrow-key sequences when readline is unavailable."""
+    # Convert raw Up-arrow escape input into previous command replay for kid-friendly UX.
+    if re.fullmatch(r"(?:\x1b|\^\[)\[[A-D]", user_input):
+        if user_input.endswith("A") and last_user_input:
+            return last_user_input
+        return None
+    return user_input
+
+
 def prompt_loop(prompt_text="> "):
-    display_welcome()
+    try:
+        profile = ensure_child_profile()
+    except (EOFError, KeyboardInterrupt):
+        # Onboarding is interactive input too; handle interrupts like the main prompt without traceback.
+        print(f"👋 {t('bye')}")
+        sys.exit(0)
+    display_welcome(profile=profile)
+    enable_readline_history()
+    last_user_input = ""
 
     while True:
         try:
@@ -571,7 +750,18 @@ def prompt_loop(prompt_text="> "):
         except (EOFError, KeyboardInterrupt):
             print(f"👋 {t('bye')}")
             sys.exit(0)
-        normalized_input = user_input.lower().strip()
+
+        # Fallback: when terminals send raw ANSI history keys as text (e.g. "^[[A"),
+        # treat Up as "reuse last command" rather than surfacing an error to the user.
+        fallback_user_input = apply_history_escape_fallback(user_input, last_user_input)
+        if fallback_user_input is None:
+            continue
+        user_input = fallback_user_input
+
+        normalized_input = normalize_user_input(user_input)
+        if normalized_input:
+            last_user_input = user_input
+
         output = None
         try:
             if not normalized_input:

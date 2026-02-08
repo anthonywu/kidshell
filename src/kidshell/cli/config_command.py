@@ -62,8 +62,13 @@ def config_command(args: list[str] | None = None):
     elif parsed_args.command == "info":
         info = config_manager.get_config_info()
         print("Configuration directories:")
+        print(f"  Base:   {info['base_dir']}")
         print(f"  Config: {info['config_dir']}")
         print(f"  Data:   {info['data_dir']}")
+        print(f"  History:{info['history_file']}")
+        print(f"  Profile:{info['profile_file']}")
+        if "KIDSHELL_HOME" in info:
+            print(f"  Override: KIDSHELL_HOME={info['KIDSHELL_HOME']}")
         if info["data_files"]:
             print("\nData files:")
             for f in info["data_files"]:
