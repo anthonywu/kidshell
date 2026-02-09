@@ -14,12 +14,13 @@ from textual.widgets import (
     Header,
     Input,
     Label,
-    ListItem,
-    ListView,
     Static,
+    TextArea,
 )
 
 from kidshell.core.engine import KidShellEngine
+from kidshell.core.models import Session
+from kidshell.core.session_store import load_persisted_session, save_persisted_session
 from kidshell.core.types import ResponseType
 
 
@@ -29,20 +30,25 @@ class ResponseDisplay(Static):
     def __init__(self, response_type: ResponseType, content: Any, **kwargs):
         super().__init__(**kwargs)
         self.response_type = response_type
-        self.content = content
+        self.payload = content
         self._generate_display()
 
     def _generate_display(self):  # noqa: C901 PLR0912 PLR0915
         """Generate the display based on response type."""
+        content = self.payload if isinstance(self.payload, dict) else {}
+
         if self.response_type == ResponseType.MATH_RESULT:
-            expr = self.content.get("expression", "")
-            result = self.content.get("result")
-            self.update(f"[bold cyan]{expr}[/bold cyan] = [bold green]{result}[/bold green]")
+            expr = content.get("expression", "")
+            result = content.get("result")
+            display = f"[bold cyan]{expr}[/bold cyan] = [bold green]{result}[/bold green]"
+            if content.get("note"):
+                display += f"\n[dim]{content['note']}[/dim]"
+            self.update(display)
 
         elif self.response_type == ResponseType.TREE_DISPLAY:
-            number = self.content.get("number")
-            properties = self.content.get("properties", [])
-            factors = self.content.get("factors", [])
+            number = content.get("number")
+            properties = content.get("properties", [])
+            factors = content.get("factors", [])
 
             display = f"[bold yellow]Number {number}[/bold yellow]\n\n"
             display += "[bold]Properties:[/bold]\n"
@@ -55,9 +61,9 @@ class ResponseDisplay(Static):
             self.update(display)
 
         elif self.response_type == ResponseType.COLOR:
-            name = self.content.get("name")
-            color = self.content.get("color", name)
-            emojis = self.content.get("emojis", [])
+            name = content.get("name")
+            color = content.get("color", name)
+            emojis = content.get("emojis", [])
 
             display = f"[{color}]█████ {name}[/{color}]"
             if emojis:
@@ -65,21 +71,21 @@ class ResponseDisplay(Static):
             self.update(display)
 
         elif self.response_type == ResponseType.EMOJI:
-            word = self.content.get("word")
-            if "emoji" in self.content:
-                emoji = self.content.get("emoji")
+            word = content.get("word")
+            if "emoji" in content:
+                emoji = content.get("emoji")
                 self.update(f"{word} → {emoji}")
-            elif "emojis" in self.content:
-                emojis = self.content.get("emojis", [])
+            elif "emojis" in content:
+                emojis = content.get("emojis", [])
                 self.update(f"{word} → {' '.join(emojis[:10])}")
             else:
                 self.update(f"No emoji for '{word}'")
 
         elif self.response_type == ResponseType.SYMBOL_RESULT:
-            symbol = self.content.get("symbol", "")
-            action = self.content.get("action", "")
-            value = self.content.get("value", "")
-            display = self.content.get("display", "")
+            symbol = content.get("symbol", "")
+            action = content.get("action", "")
+            value = content.get("value", "")
+            display = content.get("display", "")
 
             if action == "created":
                 self.update(f"[bold magenta]Created symbol:[/bold magenta] {symbol}")
@@ -89,54 +95,63 @@ class ResponseDisplay(Static):
                 # Show expression with result
                 self.update(f"[bold magenta]{display}[/bold magenta]")
             else:
-                result = self.content.get("result", value)
+                result = content.get("result", value)
                 self.update(f"[bold magenta]{result}[/bold magenta]")
 
         elif self.response_type == ResponseType.LOOP_RESULT:
-            values = self.content.get("values", [])
-            self.update(f"[bold cyan]Loop:[/bold cyan] {', '.join(map(str, values[:20]))}")
+            values = content.get("values", [])
+            rendered_values = ", ".join(map(str, values[:20]))
             if len(values) > 20:  # noqa: PLR2004
-                self.update(self.renderable + "...")
+                rendered_values += "..."
+            self.update(f"[bold cyan]Loop:[/bold cyan] {rendered_values}")
 
         elif self.response_type == ResponseType.QUIZ:
-            if isinstance(self.content, dict):
-                if self.content.get("correct"):
-                    answer = self.content.get("answer")
-                    streak = self.content.get("streak", 0)
-                    self.update(f"[bold green]✓ Correct![/bold green] Answer: {answer}\nStreak: {streak}")
+            if isinstance(self.payload, dict):
+                if content.get("correct"):
+                    answer = content.get("answer")
+                    streak = content.get("streak", 0)
+                    display = f"[bold green]✓ Correct![/bold green] Answer: {answer}\nStreak: {streak}"
+                    next_quiz = content.get("next_quiz")
+                    if isinstance(next_quiz, dict):
+                        next_question = next_quiz.get("question")
+                        if next_question:
+                            display += f"\n\n[bold yellow]Next: {next_question}[/bold yellow]"
+                    self.update(display)
+                elif "correct" in content:
+                    encouragement = content.get("encouragement", "Nice thinking.")
+                    display = f"[bold green]🌟 {encouragement}[/bold green]"
+                    hint = content.get("hint")
+                    if hint:
+                        display += f"\n[cyan]💡 {hint}[/cyan]"
 
-                    if "next_quiz" in self.content:
-                        next_quiz = self.content["next_quiz"]
-                        self.update(
-                            self.renderable + f"\n\n[bold yellow]Next: {next_quiz.get('question')}[/bold yellow]"
-                        )
+                    number_facts = content.get("number_facts")
+                    if isinstance(number_facts, dict):
+                        number = number_facts.get("number")
+                        if number is not None:
+                            display += f"\n\n[bold yellow]About {number}:[/bold yellow]"
+                        factors = number_facts.get("factors", [])
+                        if factors:
+                            pairs = ", ".join(f"{a}×{b}" for a, b in factors[:8])
+                            display += f"\nFactors: {pairs}"
+                        properties = number_facts.get("properties", [])
+                        if properties:
+                            prop_names = ", ".join(prop for prop, _ in properties[:5])
+                            display += f"\nProperties: {prop_names}"
+
+                    self.update(display)
                 else:
-                    hint = self.content.get("hint", "Try again!")
-                    self.update(f"[bold red]✗ {hint}[/bold red]")
+                    question = content.get("question", str(self.payload))
+                    self.update(f"[bold yellow]Quiz: {question}[/bold yellow]")
             else:
                 # New quiz
-                question = self.content.get("question", self.content)
-                self.update(f"[bold yellow]Quiz: {question}[/bold yellow]")
+                self.update(f"[bold yellow]Quiz: {self.payload}[/bold yellow]")
 
         elif self.response_type == ResponseType.ERROR:
-            self.update(f"[bold red]Error:[/bold red] {self.content}")
+            self.update(f"[bold red]Error:[/bold red] {self.payload}")
 
         else:
             # Default text display
-            self.update(str(self.content))
-
-
-class HistoryItem(ListItem):
-    """A single item in the history."""
-
-    def __init__(self, input_text: str, response_display: ResponseDisplay):
-        super().__init__()
-        self.input_text = input_text
-        self.response_display = response_display
-
-    def compose(self) -> ComposeResult:
-        yield Label(f"[dim]>[/dim] {self.input_text}", classes="history-input")
-        yield self.response_display
+            self.update(str(self.payload))
 
 
 class KidShellTextualApp(App):
@@ -154,9 +169,11 @@ class KidShellTextualApp(App):
         margin-bottom: 0;
     }
 
-    ResponseDisplay {
-        margin-bottom: 1;
-        padding-left: 2;
+    #history {
+        height: 1fr;
+        border: none;
+        margin: 0;
+        padding: 0;
     }
 
     .input-container {
@@ -192,9 +209,9 @@ class KidShellTextualApp(App):
     TITLE = "KidShell 🐚"
     SUB_TITLE = "A fun math shell for kids!"
 
-    def __init__(self):
+    def __init__(self, session: Session | None = None):
         super().__init__()
-        self.engine = KidShellEngine()
+        self.engine = KidShellEngine(session or Session())
         self.history_items = []
 
     def compose(self) -> ComposeResult:
@@ -205,7 +222,15 @@ class KidShellTextualApp(App):
             # Main area with history
             with Vertical(classes="history-container"):
                 yield Label("KidShell - Type math problems, colors, or emoji names!", classes="title")
-                yield ListView(id="history")
+                yield TextArea(
+                    "",
+                    id="history",
+                    read_only=True,
+                    show_line_numbers=False,
+                    show_cursor=False,
+                    soft_wrap=True,
+                    placeholder="History appears here. Click to select text, Ctrl+C to copy.",
+                )
 
             # Stats panel
             with Vertical(classes="stats-panel"):
@@ -223,27 +248,30 @@ class KidShellTextualApp(App):
 
     def on_mount(self) -> None:
         """Initialize when app starts."""
-        # Initialize start time first
-        self._start_time = datetime.now()
+        # Keep app-local session timer separate from Textual internals.
+        self._session_started_at = datetime.now()
 
-        # Generate initial quiz
-        response = self.engine.process_input("")
-        if response.type == ResponseType.QUIZ:
-            self._display_quiz(response.content)
+        if self.engine.session.current_quiz:
+            self._display_quiz(self.engine.session.current_quiz)
+        else:
+            # Generate initial quiz for fresh sessions.
+            response = self.engine.process_input("")
+            if response.type == ResponseType.QUIZ:
+                self._display_quiz(response.content)
 
         # Focus on input
         self.query_one("#input", Input).focus()
 
         # Start session timer
         self.set_interval(1, self._update_session_time)
+        self._update_stats()
 
     def _update_session_time(self) -> None:
         """Update the session timer."""
-        # Ensure _start_time is a datetime object
-        if not hasattr(self, "_start_time") or not isinstance(self._start_time, datetime):
-            self._start_time = datetime.now()
+        if not hasattr(self, "_session_started_at") or not isinstance(self._session_started_at, datetime):
+            self._session_started_at = datetime.now()
 
-        elapsed = datetime.now() - self._start_time
+        elapsed = datetime.now() - self._session_started_at
         minutes = int(elapsed.total_seconds() // 60)
         seconds = int(elapsed.total_seconds() % 60)
         self.query_one("#session-time", Label).update(f"Session Time: {minutes}:{seconds:02d}")
@@ -267,49 +295,155 @@ class KidShellTextualApp(App):
         else:
             self.query_one("#current-quiz", Label).update("")
 
+    def _format_history_response(self, response_type: ResponseType, payload: Any) -> str:  # noqa: C901
+        """Render a plain-text transcript line for selectable history view."""
+        content = payload if isinstance(payload, dict) else {}
+
+        if response_type == ResponseType.MATH_RESULT:
+            expression = content.get("display") or f"{content.get('expression', '')} = {content.get('result')}"
+            note = content.get("note")
+            if note:
+                return f"{str(expression).strip()}\n{note}"
+            return str(expression).strip()
+
+        if response_type == ResponseType.TREE_DISPLAY:
+            number = content.get("number")
+            factors = content.get("factors", [])
+            properties = content.get("properties", [])
+            lines = [f"Number {number}"]
+            if factors:
+                lines.append("Factors: " + ", ".join(f"{a}x{b}" for a, b in factors[:8]))
+            if properties:
+                lines.append("Properties: " + ", ".join(prop for prop, _ in properties[:6]))
+            return "\n".join(lines)
+
+        if response_type == ResponseType.COLOR:
+            name = content.get("name", "")
+            emojis = content.get("emojis", [])
+            line = f"Color: {name}".strip()
+            if emojis:
+                line += "\nRelated: " + " ".join(emojis[:8])
+            return line
+
+        if response_type == ResponseType.EMOJI:
+            if "emoji" in content:
+                return f"{content.get('word', '')} -> {content.get('emoji')}"
+            if "emojis" in content:
+                return f"{content.get('word', '')} -> {' '.join(content.get('emojis', [])[:10])}"
+            return f"No emoji for '{content.get('word', '')}'"
+
+        if response_type == ResponseType.SYMBOL_RESULT:
+            if content.get("display"):
+                return str(content["display"])
+            if content.get("action") == "created":
+                return f"Created symbol: {content.get('symbol')}"
+            if content.get("action") in {"assigned", "found"}:
+                return f"{content.get('symbol')} = {content.get('value')}"
+            return str(content.get("result", payload))
+
+        if response_type == ResponseType.LOOP_RESULT:
+            values = content.get("values", [])
+            rendered_values = ", ".join(map(str, values[:20]))
+            if len(values) > 20:  # noqa: PLR2004
+                rendered_values += "..."
+            return f"Loop: {rendered_values}"
+
+        if response_type == ResponseType.QUIZ:
+            if isinstance(payload, dict):
+                if content.get("correct"):
+                    lines = ["Correct!"]
+                    if "answer" in content:
+                        lines.append(f"Answer: {content['answer']}")
+                    if content.get("streak") is not None:
+                        lines.append(f"Streak: {content.get('streak', 0)}")
+                    next_quiz = content.get("next_quiz")
+                    if isinstance(next_quiz, dict) and next_quiz.get("question"):
+                        lines.append(f"Next: {next_quiz['question']}")
+                    return "\n".join(lines)
+
+                if "correct" in content:
+                    lines = []
+                    if content.get("encouragement"):
+                        lines.append(str(content["encouragement"]))
+                    if content.get("hint"):
+                        lines.append(str(content["hint"]))
+                    number_facts = content.get("number_facts")
+                    if isinstance(number_facts, dict):
+                        number = number_facts.get("number")
+                        if number is not None:
+                            lines.append(f"About {number}:")
+                        factors = number_facts.get("factors", [])
+                        if factors:
+                            lines.append("Factors: " + ", ".join(f"{a}x{b}" for a, b in factors[:8]))
+                    quiz = content.get("quiz")
+                    if isinstance(quiz, dict) and quiz.get("question"):
+                        lines.append(f"Quiz: {quiz['question']}")
+                    return "\n".join(lines) if lines else "Keep going!"
+
+                if content.get("question"):
+                    return f"Quiz: {content.get('question')}"
+            return str(payload)
+
+        if response_type == ResponseType.ERROR:
+            return f"Error: {payload}"
+
+        return str(payload)
+
     @on(Input.Submitted)
     async def handle_input(self, event: Input.Submitted) -> None:
         """Handle user input submission."""
         input_text = event.value.strip()
 
         response = self.engine.process_input("") if not input_text else self.engine.process_input(input_text)
+        responses = [response]
 
-        # Create response display widget
-        response_display = ResponseDisplay(response.type, response.content)
+        # Keep parity with terminal frontend: display pending response after achievements.
+        pending = self.engine.get_pending_response()
+        if pending is not None:
+            responses.append(pending)
 
         # Add to history
         if input_text:  # Only add non-empty inputs to history
-            history_item = HistoryItem(input_text, response_display)
-            history_list = self.query_one("#history", ListView)
-            history_list.append(history_item)
+            history = self.query_one("#history", TextArea)
+            for index, current in enumerate(responses):
+                display_input = input_text if index == 0 else "..."
+                response_text = self._format_history_response(current.type, current.content)
+                history.insert(
+                    f"> {display_input}\n{response_text}\n\n",
+                    history.document.end,
+                )
 
             # Auto-scroll to bottom
-            history_list.scroll_end(animate=True)
+            history.scroll_end(animate=False)
 
         # Update stats
         self._update_stats()
 
         # Handle quiz updates
-        if response.type == ResponseType.QUIZ:
-            if isinstance(response.content, dict):
-                if "next_quiz" in response.content:
-                    self._display_quiz(response.content["next_quiz"])
-                elif "quiz" in response.content:
-                    self._display_quiz(response.content["quiz"])
-            else:
-                self._display_quiz(response.content)
+        for current in responses:
+            if current.type == ResponseType.QUIZ:
+                if isinstance(current.content, dict):
+                    if "next_quiz" in current.content:
+                        self._display_quiz(current.content["next_quiz"])
+                    elif "quiz" in current.content:
+                        self._display_quiz(current.content["quiz"])
+                else:
+                    self._display_quiz(current.content)
 
         # Clear input
         event.input.value = ""
+        save_persisted_session(self.engine.session)
 
     def action_quit(self) -> None:
         """Quit the application."""
+        save_persisted_session(self.engine.session)
         self.exit()
 
 
-def main():
+def main(*, start_new: bool = False):
     """Run the Textual app."""
-    app = KidShellTextualApp()
+    session = None if start_new else load_persisted_session()
+    app = KidShellTextualApp(session=session)
     app.run()
 
 

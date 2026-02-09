@@ -2,7 +2,10 @@
 Quiz handler for answering quiz questions.
 """
 
+import re
+
 from kidshell.core.handlers.base import Handler
+from kidshell.core.handlers.number_tree import build_number_tree_content, can_build_number_tree
 from kidshell.core.models import Session
 from kidshell.core.services import QuizService
 from kidshell.core.types import Response, ResponseType
@@ -10,6 +13,8 @@ from kidshell.core.types import Response, ResponseType
 
 class QuizHandler(Handler):
     """Handle quiz answer checking."""
+
+    ANSWER_PATTERN = re.compile(r"^[+-]?\d+(?:\.\d+)?$")
 
     def can_handle(self, input_text: str, session: Session) -> bool:
         """Check if there's an active quiz and input could be an answer."""
@@ -22,8 +27,8 @@ class QuizHandler(Handler):
         # - Or explicitly "answer: X"
 
         # Allow other handlers to take precedence for their specific patterns
-        # Check if it's a pure number answer
-        if input_text.replace("-", "").replace(".", "").isdigit():
+        # Check if it's a plain numeric answer (avoid matching loop syntax like 0...10...1).
+        if self.ANSWER_PATTERN.fullmatch(input_text):
             return True
 
         # Check for explicit answer format
@@ -51,6 +56,7 @@ class QuizHandler(Handler):
             answer = input_text[7:].strip()
         elif input_text.startswith("ans:"):
             answer = input_text[4:].strip()
+        user_answer_text = answer if isinstance(answer, str) else str(answer)
 
         is_correct = QuizService.check_answer(quiz, answer)
 
@@ -87,27 +93,46 @@ class QuizHandler(Handler):
         session.add_activity("quiz", input_text, f"Expected: {quiz['answer']}", success=False)
         session.current_streak = 0
 
-        # Provide hint after 3 attempts
+        # Keep coaching encouraging and optionally provide number exploration.
         attempts = session.quiz_attempts[quiz_id]
-        hint = None
+        clue = None
         if attempts >= 3:
-            answer = quiz["answer"]
-            if isinstance(answer, int):
-                if answer < 10:
-                    hint = "The answer is less than 10"
-                elif answer < 50:
-                    hint = f"The answer is between {(answer // 10) * 10} and {((answer // 10) + 1) * 10}"
+            correct_answer = quiz["answer"]
+            if isinstance(correct_answer, int):
+                if correct_answer < 10:
+                    clue = "The answer is less than 10."
+                elif correct_answer < 50:
+                    clue = (
+                        f"The answer is between {(correct_answer // 10) * 10} and "
+                        f"{((correct_answer // 10) + 1) * 10}."
+                    )
                 else:
-                    hint = f"The answer starts with {str(answer)[0]}"
+                    clue = f"The answer starts with {str(correct_answer)[0]}."
+
+        number_facts = None
+        numeric_answer = user_answer_text.strip()
+        if can_build_number_tree(numeric_answer):
+            number_facts = build_number_tree_content(int(numeric_answer))
+
+        if clue:
+            hint = f"Great persistence! Helpful clue: {clue}"
+        else:
+            hint = "Great attempt! Keep going on this one."
+
+        encouragement = "Nice thinking."
+        if number_facts is not None:
+            encouragement = f"Nice thinking with {number_facts['number']}! Let's explore it while we keep going."
 
         return Response(
             type=ResponseType.QUIZ,
             content={
                 "correct": False,
                 "user_answer": input_text,
-                "hint": hint or f"Try again! {input_text} is not correct",
+                "hint": hint,
+                "encouragement": encouragement,
                 "quiz": quiz,
                 "attempts": attempts,
+                "number_facts": number_facts,
             },
             metadata={"quiz_id": quiz_id},
         )

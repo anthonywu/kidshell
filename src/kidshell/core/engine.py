@@ -5,13 +5,18 @@ Platform-agnostic, no UI dependencies.
 
 from kidshell.core.handlers import (
     ColorHandler,
+    CustomDataHandler,
     EmojiHandler,
+    GibberishHandler,
     LoopHandler,
     MathHandler,
+    MathLookupHandler,
     NumberTreeHandler,
     QuizHandler,
+    RepeatedCharHandler,
     SymbolHandler,
 )
+from kidshell.core.handlers.base import TryNext
 from kidshell.core.models import Session
 from kidshell.core.types import Response, ResponseType
 
@@ -31,16 +36,24 @@ class KidShellEngine:
             QuizHandler(),
             # Number properties tree (pure number input)
             NumberTreeHandler(),
-            # Math expressions
-            MathHandler(),
-            # Symbols and algebra
-            SymbolHandler(),
+            # Direct value lookup from math environment (pi, e, assigned vars)
+            MathLookupHandler(),
+            # Custom data lookup should run before broad text handlers
+            CustomDataHandler(),
+            # Colors (e.g., "blue")
+            ColorHandler(),
+            # Emoji words should resolve before short-word symbol creation.
+            EmojiHandler(),
+            # Repeated characters from keyboard-smash input
+            RepeatedCharHandler(),
             # Loops (e.g., "0...10...1")
             LoopHandler(),
-            # Colors
-            ColorHandler(),
-            # Emojis
-            EmojiHandler(),
+            # Symbols and algebra
+            SymbolHandler(),
+            # Math expressions
+            MathHandler(),
+            # Long unknown text fallback
+            GibberishHandler(),
         ]
 
     def process_input(self, user_input: str) -> Response:
@@ -80,6 +93,10 @@ class KidShellEngine:
                         )
 
                     return response
+
+                except TryNext:
+                    # Handler opted out after deeper validation.
+                    continue
 
                 except Exception as e:
                     return Response(

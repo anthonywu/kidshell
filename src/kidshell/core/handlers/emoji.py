@@ -2,7 +2,7 @@
 Emoji handler for showing emojis for words.
 """
 
-from kidshell.core.handlers.base import Handler
+from kidshell.core.handlers.base import Handler, TryNext
 from kidshell.core.models import Session
 from kidshell.core.types import Response, ResponseType
 
@@ -23,6 +23,7 @@ class EmojiHandler(Handler):
             # Try exact match
             try:
                 emoji = rich_emoji.Emoji(input_text)
+                session.add_activity("emoji", input_text, str(emoji))
                 return Response(
                     type=ResponseType.EMOJI,
                     content={
@@ -39,23 +40,23 @@ class EmojiHandler(Handler):
             matches = [(k, v) for k, v in emoji_map.items() if input_text in k.split("_") and "skin_tone" not in k]
 
             if matches:
+                emojis = [v for k, v in matches]
+                session.add_activity("emoji", input_text, emojis)
                 return Response(
                     type=ResponseType.EMOJI,
                     content={
                         "word": input_text,
-                        "emojis": [v for k, v in matches],
+                        "emojis": emojis,
                         "found": True,
                         "multiple": True,
                     },
                 )
 
-            # No emoji found
-            return Response(
-                type=ResponseType.TEXT,
-                content=f"No emoji found for '{input_text}'",
-                metadata={"word": input_text},
-            )
+            # No emoji found; allow fallback handlers.
+            raise TryNext(f"{input_text}: not emoji")
 
+        except TryNext:
+            raise
         except Exception as e:
             return Response(
                 type=ResponseType.ERROR,

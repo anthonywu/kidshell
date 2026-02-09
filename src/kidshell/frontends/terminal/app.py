@@ -105,8 +105,14 @@ class TerminalApp:
                 if "next_quiz" in content:
                     print(content["next_quiz"]["question"] + " = ?")
             else:
-                # Wrong answer
-                print(f"🙈 {content.get('hint', 'Try again!')}")
+                if content.get("encouragement"):
+                    print(f"🌟 {content['encouragement']}")
+                if content.get("hint"):
+                    print(f"💡 {content['hint']}")
+                number_facts = content.get("number_facts")
+                if isinstance(number_facts, dict) and isinstance(number_facts.get("number"), int):
+                    print(f"🔎 Let's explore {number_facts['number']}:")
+                    self.ui.show_number_tree(number_facts["number"])
                 if "quiz" in content:
                     print(content["quiz"]["question"] + " = ?")
 

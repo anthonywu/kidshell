@@ -8,6 +8,10 @@ from kidshell.core.models import Session
 from kidshell.core.types import Response
 
 
+class TryNext(Exception):
+    """Signal that the next handler should process this input."""
+
+
 class Handler(ABC):
     """Base handler interface for processing input."""
 

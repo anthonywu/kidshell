@@ -5,7 +5,7 @@ Math calculation handler.
 import re
 import sys
 
-from kidshell.core.handlers.base import Handler
+from kidshell.core.handlers.base import Handler, TryNext
 from kidshell.core.models import Session
 from kidshell.core.safe_math import SafeMathError, SafeMathEvaluator
 from kidshell.core.types import Response, ResponseType
@@ -14,10 +14,24 @@ from kidshell.core.types import Response, ResponseType
 class MathHandler(Handler):
     """Handle mathematical expressions."""
 
+    MULTIPLY_X_PATTERN = re.compile(r"(?<=[\d\)])\s*[x×]\s*(?=[\d\(])")
+
+    def _normalize_multiplication_aliases(self, expression: str) -> tuple[str, bool]:
+        """Interpret x/× between numeric terms as multiplication."""
+        if not self.MULTIPLY_X_PATTERN.search(expression):
+            return expression, False
+        normalized = self.MULTIPLY_X_PATTERN.sub(" * ", expression)
+        normalized = re.sub(r"\s+", " ", normalized).strip()
+        return normalized, True
+
     def can_handle(self, input_text: str, session: Session) -> bool:
         """Check if input is a math expression."""
         # Check for math operators or pure numbers
         if any(op in input_text for op in "+-*/"):
+            return True
+
+        # Allow "8 x 6" style multiplication shorthand.
+        if self.MULTIPLY_X_PATTERN.search(input_text):
             return True
 
         # Check for expressions starting with operators (uses last_number)
@@ -42,6 +56,7 @@ class MathHandler(Handler):
         try:
             # Normalize whitespace
             clean_expr = re.sub(r"\s+", " ", input_text.strip())
+            clean_expr, interpreted_multiply_x = self._normalize_multiplication_aliases(clean_expr)
 
             # Handle expressions starting with operator (use last_number)
             if clean_expr and clean_expr[0] in "+-*/":
@@ -93,6 +108,12 @@ class MathHandler(Handler):
                 "result": result,
             }
 
+            if interpreted_multiply_x:
+                content["note"] = (
+                    "Interpreted 'x' as multiplication here. "
+                    "Tip: x can also be a variable (for example: x = 3)."
+                )
+
             # If expression has variables, show the evaluation
             if any(c.isalpha() for c in clean_expr):
                 content["display"] = f"{clean_expr} = {result}"
@@ -107,6 +128,10 @@ class MathHandler(Handler):
             )
 
         except SafeMathError as e:
+            error_text = str(e).lower()
+            # Let SymbolHandler try expressions that failed due unknown names.
+            if any(ch.isalpha() for ch in input_text) and ("nameerror" in error_text or "not defined" in error_text):
+                raise TryNext(str(e))
             return Response(
                 type=ResponseType.ERROR,
                 content=f"Math error: {e!s}",
