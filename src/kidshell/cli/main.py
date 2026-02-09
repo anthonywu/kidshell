@@ -55,6 +55,7 @@ if DEBUG:
 RNG = random.SystemRandom()
 FAILURE_EMOJIS = ["🙈", "🤦", "😑", "😕", "🙅‍♂️"]
 MOTION_EMOJIS = ["🚣", "🛫", "🚋"]
+EXIT_INPUTS = {"bye", "quit", ":q!"}
 
 
 class CliResponseRenderer:
@@ -438,7 +439,7 @@ def prompt_loop(prompt_text: str = "> ", *, start_new: bool = False) -> None:
         if normalized_input:
             last_user_input = user_input
 
-        if normalized_input in {"bye", "quit"}:
+        if normalized_input in EXIT_INPUTS:
             save_persisted_session(getattr(engine, "session", session))
             print(f"👋 {t('bye')}")
             sys.exit(0)

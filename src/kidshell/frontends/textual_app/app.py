@@ -27,6 +27,7 @@ from kidshell.core.types import ResponseType
 
 MOTION_EMOJIS = ["🚣", "🛫", "🚋"]
 RNG = random.SystemRandom()
+EXIT_INPUTS = {"bye", "quit", ":q!"}
 
 
 class ResponseDisplay(Static):
@@ -429,7 +430,7 @@ class KidShellTextualApp(App):
         input_text = event.value.strip()
         normalized_input = input_text.lower()
 
-        if normalized_input in {"bye", "quit"}:
+        if normalized_input in EXIT_INPUTS:
             save_persisted_session(self.engine.session)
             self.exit()
             return

@@ -296,7 +296,7 @@ def test_prompt_loop_with_new_flag_skips_restore(cli_main, monkeypatch: pytest.M
     assert captured == {"problems_solved": 0, "current_streak": 0}
 
 
-@pytest.mark.parametrize("exit_word", ["bye", "quit"])
+@pytest.mark.parametrize("exit_word", ["bye", "quit", ":q!"])
 def test_prompt_loop_reserved_exit_words_terminate_session(cli_main, monkeypatch: pytest.MonkeyPatch, exit_word: str):
     """Typing reserved exit words should end the classic REPL immediately."""
     processed_inputs: list[str] = []

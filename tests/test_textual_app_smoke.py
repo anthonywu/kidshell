@@ -1,6 +1,7 @@
 """Smoke tests for the Textual frontend startup path."""
 
 import asyncio
+from types import SimpleNamespace
 
 from textual.widgets import Label, TextArea
 
@@ -60,6 +61,22 @@ def test_textual_app_includes_macos_copy_paste_shortcuts():
     assert "super+v" in keys
     assert "meta+c" in keys
     assert "meta+v" in keys
+
+
+def test_textual_app_vim_quit_alias_terminates_without_processing(monkeypatch):
+    """Vim-style quit alias should exit the TUI before regular input handling."""
+    app = KidShellTextualApp()
+    processed_inputs: list[str] = []
+    exit_calls: list[bool] = []
+
+    monkeypatch.setattr("kidshell.frontends.textual_app.app.save_persisted_session", lambda _session: True)
+    monkeypatch.setattr(app.engine, "process_input", lambda input_text: processed_inputs.append(input_text))
+    monkeypatch.setattr(app, "exit", lambda *args, **kwargs: exit_calls.append(True))
+
+    asyncio.run(app.handle_input(SimpleNamespace(value=":q!")))  # type: ignore[arg-type]
+
+    assert exit_calls == [True]
+    assert processed_inputs == []
 
 
 def test_textual_app_progress_track_updates_with_solved_count():
