@@ -1,5 +1,5 @@
 """
-Kidshell - A REPL shell that is resilient in the face of childish expectations.
+Kidshell - A Terminal experience for childish expectations!
 """
 
 from importlib.metadata import PackageNotFoundError, version

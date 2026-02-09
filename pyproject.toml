@@ -5,7 +5,7 @@ build-backend = "uv_build"
 [project]
 name = "kidshell"
 version = "2.0.0"
-description = "A REPL shell that is resilient in the face of childish expectations"
+description = "A Text-Based Terminal Experience that is resilient in the face of childish expectations"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
