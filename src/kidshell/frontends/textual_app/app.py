@@ -7,6 +7,7 @@ from datetime import datetime
 import random
 from typing import Any
 
+import rich.color as rich_color
 from textual import on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -330,6 +331,76 @@ class KidShellTextualApp(App):
         lap_suffix = f" (lap {laps + 1})" if laps > 0 else ""
         return f"Progress track\n{''.join(lane)}\nSolved: {solved}{lap_suffix}"
 
+    @staticmethod
+    def _blend_rgb(base: tuple[int, int, int], target: tuple[int, int, int], target_ratio: float) -> tuple[int, int, int]:
+        """Blend two RGB colors by ratio."""
+        ratio = max(0.0, min(1.0, target_ratio))
+        return tuple(
+            int(round((base[index] * (1.0 - ratio)) + (target[index] * ratio)))
+            for index in range(3)
+        )
+
+    @staticmethod
+    def _rgb_to_hex(rgb: tuple[int, int, int]) -> str:
+        """Convert RGB triplet to CSS hex color."""
+        red, green, blue = rgb
+        return f"#{red:02x}{green:02x}{blue:02x}"
+
+    @staticmethod
+    def _text_color_for_background(rgb: tuple[int, int, int]) -> str:
+        """Choose readable foreground color for a background."""
+        red, green, blue = rgb
+        luminance = (0.299 * red) + (0.587 * green) + (0.114 * blue)
+        return "#101418" if luminance > 160 else "#f8fbff"
+
+    def _apply_theme_color(self, color_name: str) -> None:
+        """Retheme the app around a recognized color token."""
+        try:
+            parsed_color = rich_color.Color.parse(color_name)
+        except rich_color.ColorParseError:
+            return
+
+        true_color = parsed_color.get_truecolor()
+        accent_rgb = (true_color.red, true_color.green, true_color.blue)
+
+        background_rgb = self._blend_rgb(accent_rgb, (8, 10, 18), 0.84)
+        surface_rgb = self._blend_rgb(accent_rgb, (18, 22, 34), 0.72)
+        history_rgb = self._blend_rgb(accent_rgb, (10, 14, 24), 0.78)
+        border_rgb = self._blend_rgb(accent_rgb, (245, 247, 255), 0.18)
+        accent_text_rgb = self._blend_rgb(accent_rgb, (255, 255, 255), 0.22)
+
+        background_hex = self._rgb_to_hex(background_rgb)
+        surface_hex = self._rgb_to_hex(surface_rgb)
+        history_hex = self._rgb_to_hex(history_rgb)
+        border_hex = self._rgb_to_hex(border_rgb)
+        accent_hex = self._rgb_to_hex(accent_text_rgb)
+        text_hex = self._text_color_for_background(background_rgb)
+
+        self.styles.background = background_hex
+        self.styles.color = text_hex
+
+        history_container = self.query_one(".history-container", Vertical)
+        stats_panel = self.query_one(".stats-panel", Vertical)
+        input_container = self.query_one(".input-container", Horizontal)
+        history = self.query_one("#history", TextArea)
+        input_widget = self.query_one("#input", Input)
+
+        history_container.styles.background = surface_hex
+        history_container.styles.border = ("solid", border_hex)
+        stats_panel.styles.background = surface_hex
+        stats_panel.styles.border = ("solid", border_hex)
+        input_container.styles.background = surface_hex
+
+        history.styles.background = history_hex
+        history.styles.color = text_hex
+        input_widget.styles.background = history_hex
+        input_widget.styles.color = text_hex
+        input_widget.styles.border = ("solid", border_hex)
+
+        for node in self.query(".title"):
+            if isinstance(node, Label):
+                node.styles.color = accent_hex
+
     def _format_history_response(self, response_type: ResponseType, payload: Any) -> str:  # noqa: C901
         """Render a plain-text transcript line for selectable history view."""
         content = payload if isinstance(payload, dict) else {}
@@ -356,6 +427,7 @@ class KidShellTextualApp(App):
             name = content.get("name", "")
             emojis = content.get("emojis", [])
             line = f"Color: {name}".strip()
+            line += "\nTheme shifted to match your color."
             if emojis:
                 line += "\nRelated: " + " ".join(emojis[:8])
             return line
@@ -462,6 +534,11 @@ class KidShellTextualApp(App):
 
         # Handle quiz updates
         for current in responses:
+            if current.type == ResponseType.COLOR and isinstance(current.content, dict):
+                color_name = str(current.content.get("color") or current.content.get("name") or "").strip()
+                if color_name:
+                    self._apply_theme_color(color_name)
+
             if current.type == ResponseType.QUIZ:
                 if isinstance(current.content, dict):
                     if "next_quiz" in current.content:

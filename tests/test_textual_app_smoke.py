@@ -3,6 +3,7 @@
 import asyncio
 from types import SimpleNamespace
 
+from textual.containers import Vertical
 from textual.widgets import Label, TextArea
 
 from kidshell.frontends.textual_app.app import KidShellTextualApp
@@ -96,5 +97,31 @@ def test_textual_app_progress_track_updates_with_solved_count():
             assert "Solved: 5" in updated
             assert updated != initial
             assert any(emoji in updated for emoji in {"🚣", "🛫", "🚋"})
+
+    asyncio.run(_run())
+
+
+def test_textual_app_color_input_updates_theme_palette():
+    """Typing a recognized color should retheme the TUI palette."""
+
+    async def _run() -> None:
+        app = KidShellTextualApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            stats_panel = app.query_one(".stats-panel", Vertical)
+            history_container = app.query_one(".history-container", Vertical)
+            initial_border_color = stats_panel.styles.border.top[1]
+            initial_history_background = history_container.styles.background
+
+            await pilot.press("o", "r", "a", "n", "g", "e", "enter")
+            await pilot.pause()
+
+            updated_border_color = stats_panel.styles.border.top[1]
+            updated_history_background = history_container.styles.background
+            history = app.query_one("#history", TextArea)
+
+            assert updated_border_color != initial_border_color
+            assert updated_history_background != initial_history_background
+            assert "Theme shifted to match your color." in history.text
 
     asyncio.run(_run())
