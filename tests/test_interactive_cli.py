@@ -296,6 +296,40 @@ def test_prompt_loop_with_new_flag_skips_restore(cli_main, monkeypatch: pytest.M
     assert captured == {"problems_solved": 0, "current_streak": 0}
 
 
+@pytest.mark.parametrize("exit_word", ["bye", "quit"])
+def test_prompt_loop_reserved_exit_words_terminate_session(cli_main, monkeypatch: pytest.MonkeyPatch, exit_word: str):
+    """Typing reserved exit words should end the classic REPL immediately."""
+    processed_inputs: list[str] = []
+
+    class FakeEngine:
+        def __init__(self, _session):
+            pass
+
+        def process_input(self, input_text: str):
+            processed_inputs.append(input_text)
+            return Response(type=ResponseType.TEXT, content="unexpected")
+
+        def get_pending_response(self):
+            return None
+
+    saves: list[bool] = []
+    monkeypatch.setattr(cli_main, "KidShellEngine", FakeEngine)
+    monkeypatch.setattr(cli_main, "ensure_child_profile", lambda: None)
+    monkeypatch.setattr(cli_main, "display_welcome", lambda profile=None, custom_data=None: None)
+    monkeypatch.setattr(cli_main, "enable_readline_history", lambda: None)
+    monkeypatch.setattr(cli_main, "load_custom_data", lambda: {})
+    monkeypatch.setattr(cli_main, "save_persisted_session", lambda session: saves.append(True) or True)
+    monkeypatch.setattr("builtins.input", _input_feeder([exit_word]))
+    monkeypatch.setattr(cli_main, "print", lambda *args, **kwargs: None)
+
+    with pytest.raises(SystemExit) as exit_info:
+        cli_main.prompt_loop()
+
+    assert exit_info.value.code == 0
+    assert processed_inputs == []
+    assert saves
+
+
 def test_renderer_highlights_next_quiz_prompt_in_color(cli_main, monkeypatch: pytest.MonkeyPatch):
     """Quiz prompts should retain visible color emphasis in classic REPL."""
     rendered: list[str] = []

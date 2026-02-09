@@ -438,6 +438,11 @@ def prompt_loop(prompt_text: str = "> ", *, start_new: bool = False) -> None:
         if normalized_input:
             last_user_input = user_input
 
+        if normalized_input in {"bye", "quit"}:
+            save_persisted_session(getattr(engine, "session", session))
+            print(f"👋 {t('bye')}")
+            sys.exit(0)
+
         try:
             response = engine.process_input(normalized_input)
             renderer.display_response(response)

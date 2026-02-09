@@ -2,7 +2,7 @@
 
 import asyncio
 
-from textual.widgets import TextArea
+from textual.widgets import Label, TextArea
 
 from kidshell.frontends.textual_app.app import KidShellTextualApp
 from kidshell.frontends.textual_app.app import ResponseDisplay
@@ -49,5 +49,35 @@ def test_textual_app_accepts_numeric_quiz_answer_without_crashing():
             history = app.query_one("#history", TextArea)
             assert history.read_only is True
             assert "> 3" in history.text
+
+    asyncio.run(_run())
+
+
+def test_textual_app_includes_macos_copy_paste_shortcuts():
+    """App bindings should include Command-key copy/paste aliases."""
+    keys = {binding.key for binding in KidShellTextualApp.BINDINGS}
+    assert "super+c" in keys
+    assert "super+v" in keys
+    assert "meta+c" in keys
+    assert "meta+v" in keys
+
+
+def test_textual_app_progress_track_updates_with_solved_count():
+    """Progress pane should reflect solved-count changes with a moving emoji lane."""
+
+    async def _run() -> None:
+        app = KidShellTextualApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            progress = app.query_one("#achievement-progress", Label)
+            initial = str(progress.content)
+
+            app.engine.session.problems_solved = 5
+            app._update_stats()
+            updated = str(progress.content)
+
+            assert "Solved: 5" in updated
+            assert updated != initial
+            assert any(emoji in updated for emoji in {"🚣", "🛫", "🚋"})
 
     asyncio.run(_run())

@@ -4,10 +4,12 @@ Textual app for KidShell - provides a rich web interface.
 # pyright: reportMissingImports=false
 
 from datetime import datetime
+import random
 from typing import Any
 
 from textual import on
 from textual.app import App, ComposeResult
+from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.widgets import (
     Footer,
@@ -22,6 +24,9 @@ from kidshell.core.engine import KidShellEngine
 from kidshell.core.models import Session
 from kidshell.core.session_store import load_persisted_session, save_persisted_session
 from kidshell.core.types import ResponseType
+
+MOTION_EMOJIS = ["🚣", "🛫", "🚋"]
+RNG = random.SystemRandom()
 
 
 class ResponseDisplay(Static):
@@ -157,6 +162,14 @@ class ResponseDisplay(Static):
 class KidShellTextualApp(App):
     """Textual app for KidShell."""
 
+    BINDINGS = [
+        # macOS terminals often emit super/meta for Command shortcuts.
+        Binding("super+c", "platform_copy", "Copy", show=False),
+        Binding("super+v", "platform_paste", "Paste", show=False),
+        Binding("meta+c", "platform_copy", "Copy", show=False),
+        Binding("meta+v", "platform_paste", "Paste", show=False),
+    ]
+
     CSS = """
     .history-container {
         height: 100%;
@@ -204,6 +217,10 @@ class KidShellTextualApp(App):
     .stat-item {
         margin-bottom: 1;
     }
+
+    .progress-track {
+        height: 4;
+    }
     """
 
     TITLE = "KidShell 🐚"
@@ -213,6 +230,8 @@ class KidShellTextualApp(App):
         super().__init__()
         self.engine = KidShellEngine(session or Session())
         self.history_items = []
+        self._progress_emoji = RNG.choice(MOTION_EMOJIS)
+        self._progress_track_length = 18
 
     def compose(self) -> ComposeResult:
         """Create child widgets."""
@@ -238,6 +257,7 @@ class KidShellTextualApp(App):
                 yield Label("Problems Solved: 0", id="problems-solved", classes="stat-item")
                 yield Label("Current Streak: 0", id="streak", classes="stat-item")
                 yield Label("", id="current-quiz", classes="stat-item")
+                yield Label("Progress track", id="achievement-progress", classes="stat-item progress-track")
                 yield Label("Session Time: 0:00", id="session-time", classes="stat-item")
 
         # Input area
@@ -289,11 +309,25 @@ class KidShellTextualApp(App):
         session = self.engine.session
         self.query_one("#problems-solved", Label).update(f"Problems Solved: {session.problems_solved}")
         self.query_one("#streak", Label).update(f"Current Streak: {session.current_streak}")
+        self.query_one("#achievement-progress", Label).update(
+            self._render_achievement_progress(session.problems_solved),
+        )
 
         if session.current_quiz:
             self._display_quiz(session.current_quiz)
         else:
             self.query_one("#current-quiz", Label).update("")
+
+    def _render_achievement_progress(self, solved_count: int) -> str:
+        """Render motion-emoji progress lane for solved-problem count."""
+        solved = max(0, int(solved_count))
+        lane_size = self._progress_track_length + 1
+        position = solved % lane_size
+        laps = solved // lane_size
+        lane = ["_"] * lane_size
+        lane[position] = self._progress_emoji
+        lap_suffix = f" (lap {laps + 1})" if laps > 0 else ""
+        return f"Progress track\n{''.join(lane)}\nSolved: {solved}{lap_suffix}"
 
     def _format_history_response(self, response_type: ResponseType, payload: Any) -> str:  # noqa: C901
         """Render a plain-text transcript line for selectable history view."""
@@ -393,6 +427,12 @@ class KidShellTextualApp(App):
     async def handle_input(self, event: Input.Submitted) -> None:
         """Handle user input submission."""
         input_text = event.value.strip()
+        normalized_input = input_text.lower()
+
+        if normalized_input in {"bye", "quit"}:
+            save_persisted_session(self.engine.session)
+            self.exit()
+            return
 
         response = self.engine.process_input("") if not input_text else self.engine.process_input(input_text)
         responses = [response]
@@ -438,6 +478,40 @@ class KidShellTextualApp(App):
         """Quit the application."""
         save_persisted_session(self.engine.session)
         self.exit()
+
+    def action_platform_copy(self) -> None:
+        """Copy selected text with platform shortcut bindings (e.g., Cmd-C on macOS)."""
+        focused = self.focused
+        if focused is not None and hasattr(focused, "action_copy"):
+            try:
+                focused.action_copy()
+                return
+            except Exception:
+                pass
+
+        history = self.query_one("#history", TextArea)
+        try:
+            history.action_copy()
+        except Exception:
+            pass
+
+    def action_platform_paste(self) -> None:
+        """Paste text with platform shortcut bindings (e.g., Cmd-V on macOS)."""
+        focused = self.focused
+        if focused is not None and hasattr(focused, "action_paste"):
+            try:
+                focused.action_paste()
+                return
+            except Exception:
+                pass
+
+        input_widget = self.query_one("#input", Input)
+        try:
+            input_widget.action_paste()
+        except Exception:
+            clipboard = self.clipboard
+            if clipboard:
+                input_widget.insert_text_at_cursor(clipboard)
 
 
 def main(*, start_new: bool = False):
