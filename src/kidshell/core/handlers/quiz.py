@@ -82,7 +82,9 @@ class QuizHandler(Handler):
                 type=ResponseType.QUIZ,
                 content={
                     "correct": True,
+                    "question": quiz.get("question"),
                     "answer": quiz["answer"],
+                    "quiz": quiz,
                     "next_quiz": next_quiz,
                     "streak": session.current_streak,
                     "total_solved": session.problems_solved,

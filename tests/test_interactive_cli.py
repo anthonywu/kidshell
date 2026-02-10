@@ -296,7 +296,7 @@ def test_prompt_loop_with_new_flag_skips_restore(cli_main, monkeypatch: pytest.M
     assert captured == {"problems_solved": 0, "current_streak": 0}
 
 
-@pytest.mark.parametrize("exit_word", ["bye", "quit", ":q!"])
+@pytest.mark.parametrize("exit_word", ["bye", "quit", "exit", "close", ":q!"])
 def test_prompt_loop_reserved_exit_words_terminate_session(cli_main, monkeypatch: pytest.MonkeyPatch, exit_word: str):
     """Typing reserved exit words should end the classic REPL immediately."""
     processed_inputs: list[str] = []
@@ -344,6 +344,27 @@ def test_renderer_highlights_next_quiz_prompt_in_color(cli_main, monkeypatch: py
     )
 
     assert any("[bold yellow]7 - 5 = ?[/bold yellow]" in line for line in rendered)
+
+
+def test_renderer_repeats_solved_quiz_equation_on_correct(cli_main, monkeypatch: pytest.MonkeyPatch):
+    """Correct quiz feedback should restate solved equation in classic REPL."""
+    rendered: list[str] = []
+    monkeypatch.setattr(cli_main, "print", lambda *args, **kwargs: rendered.append(str(args[0]) if args else ""))
+
+    renderer = cli_main.CliResponseRenderer(cli_main.RICH_UI)
+    renderer.display_response(
+        Response(
+            type=ResponseType.QUIZ,
+            content={
+                "correct": True,
+                "quiz": {"question": "23 x 15"},
+                "question": "23 x 15",
+                "answer": 345,
+            },
+        )
+    )
+
+    assert any("Correct, 23 x 15 = 345!" in line for line in rendered)
 
 
 def test_prompt_loop_shows_initial_quiz_on_startup(cli_main, monkeypatch: pytest.MonkeyPatch):
@@ -403,6 +424,30 @@ def test_renderer_shows_math_alias_interpretation_note(cli_main, monkeypatch: py
 
     assert any("8 * 6 = 48" in line for line in rendered)
     assert any("Interpreted 'x' as multiplication" in line for line in rendered)
+
+
+def test_renderer_shows_two_digit_multiplication_breakdown_hint(cli_main, monkeypatch: pytest.MonkeyPatch):
+    """Classic renderer should show distributive breakdown hint for two-digit multiplication."""
+    rendered: list[str] = []
+    monkeypatch.setattr(cli_main, "print", lambda *args, **kwargs: rendered.append(str(args[0]) if args else ""))
+
+    renderer = cli_main.CliResponseRenderer(cli_main.RICH_UI)
+    renderer.display_response(
+        Response(
+            type=ResponseType.MATH_RESULT,
+            content={
+                "expression": "12 * 25",
+                "result": 300,
+                "display": "12 * 25 = 300",
+            },
+        )
+    )
+
+    assert any("12 * 25 = 300" in line for line in rendered)
+    assert any(
+        "Try breaking it apart: 12 * 25 = (10 + 2) x (20 + 5) = 200 + 50 + 40 + 10 = 300" in line
+        for line in rendered
+    )
 
 
 def test_main_defaults_to_tui_mode(cli_main, monkeypatch: pytest.MonkeyPatch):

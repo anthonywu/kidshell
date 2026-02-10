@@ -12,9 +12,12 @@ from textual import on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
+from textual.css.query import NoMatches
+from textual.timer import Timer
 from textual.widgets import (
     Footer,
     Header,
+    HelpPanel,
     Input,
     Label,
     Static,
@@ -23,12 +26,25 @@ from textual.widgets import (
 
 from kidshell.core.engine import KidShellEngine
 from kidshell.core.models import Session
+from kidshell.core.models.achievements import get_achievement
 from kidshell.core.session_store import load_persisted_session, save_persisted_session
 from kidshell.core.types import ResponseType
 
-MOTION_EMOJIS = ["🚣", "🛫", "🚋"]
+MOTION_EMOJIS = ["🚣", "🛫", "🚋", "🚀", "👟"]
+CELEBRATION_SPARKLES = ("✨", "🌟", "🎉", "🎊", "⭐", "💫")
+FIREWORKS_BY_TIER = {
+    1: "🎉 ✨ 🎉",
+    2: "🎆 🎇 ✨ 🎉 ✨ 🎇 🎆",
+    3: "🎇 🎆 💥 ✨ 🎉 ✨ 💥 🎆 🎇",
+}
+CELEBRATION_CAPTIONS = {
+    1: "Nice streak!",
+    2: "Hot streak!",
+    3: "Legendary streak!",
+}
 RNG = random.SystemRandom()
-EXIT_INPUTS = {"bye", "quit", ":q!"}
+EXIT_INPUTS = {"bye", "quit", "exit", "close", ":q!"}
+FIREWORKS_INPUTS = {":fireworks", "fireworks", ":boom"}
 
 
 class ResponseDisplay(Static):
@@ -115,9 +131,22 @@ class ResponseDisplay(Static):
         elif self.response_type == ResponseType.QUIZ:
             if isinstance(self.payload, dict):
                 if content.get("correct"):
+                    solved_quiz = content.get("quiz")
+                    solved_question = ""
+                    if isinstance(solved_quiz, dict):
+                        solved_question = str(solved_quiz.get("question", "")).strip()
+                    if not solved_question:
+                        solved_question = str(content.get("question", "")).strip()
                     answer = content.get("answer")
                     streak = content.get("streak", 0)
-                    display = f"[bold green]✓ Correct![/bold green] Answer: {answer}\nStreak: {streak}"
+                    if solved_question and answer is not None:
+                        display = f"[bold green]✓ Correct, {solved_question} = {answer}![/bold green]"
+                    elif answer is not None:
+                        display = f"[bold green]✓ Correct![/bold green] Answer: {answer}"
+                    else:
+                        display = "[bold green]✓ Correct![/bold green]"
+                    if streak > 1:
+                        display += f"\nStreak: {streak}"
                     next_quiz = content.get("next_quiz")
                     if isinstance(next_quiz, dict):
                         next_question = next_quiz.get("question")
@@ -173,8 +202,12 @@ class KidShellTextualApp(App):
     ]
 
     CSS = """
+    .app-body {
+        height: 1fr;
+    }
+
     .history-container {
-        height: 100%;
+        height: 1fr;
         border: solid $primary;
         padding: 1;
     }
@@ -193,7 +226,6 @@ class KidShellTextualApp(App):
 
     .input-container {
         height: 3;
-        dock: bottom;
         background: $surface;
         padding: 0 1;
     }
@@ -202,11 +234,20 @@ class KidShellTextualApp(App):
         width: 100%;
     }
 
-    .stats-panel {
-        width: 30;
-        height: 100%;
+    .stats-strip {
+        height: 6;
         border: solid $primary;
-        padding: 1;
+        background: $surface;
+        padding: 0 1;
+    }
+
+    .stats-strip .stat-item {
+        width: 1fr;
+        height: 100%;
+        content-align: left middle;
+        padding: 0 1;
+        background: transparent;
+        color: $text;
     }
 
     .title {
@@ -216,12 +257,12 @@ class KidShellTextualApp(App):
         margin-bottom: 1;
     }
 
-    .stat-item {
-        margin-bottom: 1;
+    .quiz-item {
+        width: 2fr;
     }
 
     .progress-track {
-        height: 4;
+        width: 2fr;
     }
     """
 
@@ -234,13 +275,23 @@ class KidShellTextualApp(App):
         self.history_items = []
         self._progress_emoji = RNG.choice(MOTION_EMOJIS)
         self._progress_track_length = 18
+        self._celebration_timer: Timer | None = None
+        self._celebration_ticks_remaining = 0
+        self._celebration_frame = 0
+        self._celebration_tier = 1
+        self._celebration_message = ""
+        self._progress_boost_ticks_remaining = 0
+        self._progress_boost_velocity = 0
+        self._progress_boost_offset = 0
+        self._fireworks_timer: Timer | None = None
+        self._fireworks_history_block = ""
 
     def compose(self) -> ComposeResult:
         """Create child widgets."""
         yield Header()
 
-        with Horizontal():
-            # Main area with history
+        with Vertical(classes="app-body"):
+            # Row 1: main history
             with Vertical(classes="history-container"):
                 yield Label("KidShell - Type math problems, colors, or emoji names!", classes="title")
                 yield TextArea(
@@ -253,18 +304,17 @@ class KidShellTextualApp(App):
                     placeholder="History appears here. Click to select text, Ctrl+C to copy.",
                 )
 
-            # Stats panel
-            with Vertical(classes="stats-panel"):
-                yield Label("Stats", classes="title")
+            # Row 2: horizontal stats strip
+            with Horizontal(classes="stats-strip"):
+                yield Label("", id="current-quiz", classes="stat-item quiz-item")
                 yield Label("Problems Solved: 0", id="problems-solved", classes="stat-item")
                 yield Label("Current Streak: 0", id="streak", classes="stat-item")
-                yield Label("", id="current-quiz", classes="stat-item")
                 yield Label("Progress track", id="achievement-progress", classes="stat-item progress-track")
                 yield Label("Session Time: 0:00", id="session-time", classes="stat-item")
 
-        # Input area
-        with Horizontal(classes="input-container"):
-            yield Input(placeholder="Enter expression, number, color, or emoji...", id="input")
+            # Row 3: input line
+            with Horizontal(classes="input-container"):
+                yield Input(placeholder="Enter expression, solve the quiz question above, or just type in any number, color, or emoji you know!", id="input")
 
         yield Footer()
 
@@ -311,9 +361,11 @@ class KidShellTextualApp(App):
         session = self.engine.session
         self.query_one("#problems-solved", Label).update(f"Problems Solved: {session.problems_solved}")
         self.query_one("#streak", Label).update(f"Current Streak: {session.current_streak}")
-        self.query_one("#achievement-progress", Label).update(
-            self._render_achievement_progress(session.problems_solved),
-        )
+        progress_label = self.query_one("#achievement-progress", Label)
+        if self._celebration_ticks_remaining > 0:
+            progress_label.update(self._render_celebration_progress())
+        else:
+            progress_label.update(self._render_achievement_progress(session.problems_solved))
 
         if session.current_quiz:
             self._display_quiz(session.current_quiz)
@@ -324,12 +376,208 @@ class KidShellTextualApp(App):
         """Render motion-emoji progress lane for solved-problem count."""
         solved = max(0, int(solved_count))
         lane_size = self._progress_track_length + 1
-        position = solved % lane_size
+        position = (solved + self._progress_boost_offset) % lane_size
         laps = solved // lane_size
         lane = ["_"] * lane_size
         lane[position] = self._progress_emoji
         lap_suffix = f" (lap {laps + 1})" if laps > 0 else ""
         return f"Progress track\n{''.join(lane)}\nSolved: {solved}{lap_suffix}"
+
+    def _achievement_names(self, achievement_ids: list[str]) -> str:
+        """Resolve achievement IDs to user-facing names."""
+        names: list[str] = []
+        for achievement_id in achievement_ids:
+            achievement = get_achievement(str(achievement_id))
+            names.append(achievement.name if achievement else str(achievement_id))
+        return ", ".join(names)
+
+    def _celebration_tier_for_payload(self, payload: dict[str, Any]) -> int:
+        """Map unlocked achievements to a celebration intensity tier."""
+        raw_ids = payload.get("achievements", [])
+        achievement_ids = [str(achievement_id) for achievement_id in raw_ids] if isinstance(raw_ids, list) else []
+        max_stars = 1
+        for achievement_id in achievement_ids:
+            achievement = get_achievement(achievement_id)
+            if achievement is not None:
+                max_stars = max(max_stars, achievement.stars)
+
+        total_solved_raw = payload.get("total_solved", 0)
+        try:
+            total_solved = int(total_solved_raw)
+        except (TypeError, ValueError):
+            total_solved = 0
+
+        if max_stars >= 3 or total_solved >= 25:
+            return 3
+        if max_stars >= 2 or total_solved >= 10:
+            return 2
+        return 1
+
+    def _boost_profile_for_tier(self, tier: int) -> tuple[int, int, int]:
+        """Return animation profile values: celebration ticks, boost ticks, boost velocity."""
+        if tier >= 3:
+            return (24, 20, 3)
+        if tier == 2:
+            return (18, 14, 2)
+        return (14, 8, 1)
+
+    def _render_celebration_progress(self) -> str:
+        """Render animated celebration header above the progress lane."""
+        lane_lines = self._render_achievement_progress(self.engine.session.problems_solved).splitlines()
+        if len(lane_lines) < 3:
+            return self._render_achievement_progress(self.engine.session.problems_solved)
+
+        spark = CELEBRATION_SPARKLES[self._celebration_frame % len(CELEBRATION_SPARKLES)]
+        width = max(28, len(lane_lines[1]))
+        banner = f"{spark} {self._celebration_message} {spark}"
+        padded = f"   {banner}   "
+        repeated = padded * ((width // max(1, len(padded))) + 3)
+        offset = self._celebration_frame % len(padded)
+        marquee = repeated[offset : offset + width]
+        footer_spark = CELEBRATION_SPARKLES[(self._celebration_frame + 2) % len(CELEBRATION_SPARKLES)]
+        return f"{marquee}\n{lane_lines[1]}\n{footer_spark} {lane_lines[2]}"
+
+    def _fireworks_line_for_tier(self, tier: int) -> str:
+        """Render one celebratory history line by intensity tier."""
+        normalized_tier = 1 if tier < 1 else 3 if tier > 3 else tier
+        fireworks = FIREWORKS_BY_TIER[normalized_tier]
+        caption = CELEBRATION_CAPTIONS[normalized_tier]
+        return f"{fireworks} {caption} {fireworks}"
+
+    def _clear_fireworks_burst(self) -> None:
+        """Clear any transient fireworks line from transcript history."""
+        if self._fireworks_timer is not None:
+            self._fireworks_timer.stop()
+            self._fireworks_timer = None
+
+        if not self._fireworks_history_block:
+            return
+
+        try:
+            history = self.query_one("#history", TextArea)
+        except NoMatches:
+            self._fireworks_history_block = ""
+            return
+
+        current_text = history.text
+        if self._fireworks_history_block in current_text:
+            history.load_text(current_text.replace(self._fireworks_history_block, "", 1))
+            history.scroll_end(animate=False)
+
+        self._fireworks_history_block = ""
+
+    def _start_fireworks_burst(self, tier: int, *, duration_seconds: float = 1.0) -> None:
+        """Append a short-lived fireworks line to history."""
+        self._clear_fireworks_burst()
+
+        try:
+            history = self.query_one("#history", TextArea)
+        except NoMatches:
+            return
+
+        line = self._fireworks_line_for_tier(tier)
+        block = f"{line}\n\n"
+        history.insert(block, history.document.end)
+        history.scroll_end(animate=False)
+        self._fireworks_history_block = block
+
+        if duration_seconds > 0:
+            self._fireworks_timer = self.set_timer(duration_seconds, self._clear_fireworks_burst)
+
+    def _stop_celebration_animation(self) -> None:
+        """Stop any running celebration animation timer."""
+        if self._celebration_timer is not None:
+            self._celebration_timer.stop()
+            self._celebration_timer = None
+        self._celebration_ticks_remaining = 0
+        self._progress_boost_ticks_remaining = 0
+        self._progress_boost_velocity = 0
+        self._progress_boost_offset = 0
+
+    def _advance_progress_boost(self) -> bool:
+        """Advance transient progress-lane speed boost after an achievement."""
+        if self._progress_boost_ticks_remaining <= 0 or self._progress_boost_velocity <= 0:
+            return False
+
+        self._progress_boost_ticks_remaining -= 1
+        self._progress_boost_offset += self._progress_boost_velocity
+
+        if self._progress_boost_ticks_remaining <= 0:
+            self._progress_boost_velocity = 0
+            self._progress_boost_offset = 0
+
+        return True
+
+    def _start_achievement_celebration(self, payload: dict[str, Any]) -> None:
+        """Kick off a short animated celebration for unlocked achievements."""
+        raw_ids = payload.get("achievements", [])
+        achievement_ids = [str(achievement_id) for achievement_id in raw_ids] if isinstance(raw_ids, list) else []
+        names = self._achievement_names(achievement_ids) or "New achievement"
+        self._celebration_tier = self._celebration_tier_for_payload(payload)
+        tier_caption = CELEBRATION_CAPTIONS[self._celebration_tier]
+        self._celebration_message = f"{tier_caption} Achievement unlocked: {names}"
+        celebration_ticks, boost_ticks, boost_velocity = self._boost_profile_for_tier(self._celebration_tier)
+        self._celebration_ticks_remaining = celebration_ticks
+        self._celebration_frame = 0
+        self._stop_celebration_animation()
+        self._celebration_ticks_remaining = celebration_ticks
+        self._progress_boost_ticks_remaining = boost_ticks
+        self._progress_boost_velocity = boost_velocity
+
+        self.query_one("#achievement-progress", Label).update(self._render_celebration_progress())
+        stats_strip = self.query_one(".stats-strip", Horizontal)
+        stats_strip.styles.animate("opacity", 0.78, duration=0.12, easing="out_cubic")
+        stats_strip.styles.animate("opacity", 1.0, duration=0.40, delay=0.12, easing="in_out_cubic")
+        self._start_fireworks_burst(self._celebration_tier)
+
+        self._celebration_timer = self.set_interval(0.12, self._advance_celebration_frame)
+
+    def _start_manual_fireworks_celebration(self) -> None:
+        """Run fireworks animation on demand without requiring an achievement."""
+        solved = max(0, int(self.engine.session.problems_solved))
+        if solved >= 25:
+            tier = 3
+        elif solved >= 10:
+            tier = 2
+        else:
+            tier = 1
+
+        self._celebration_tier = tier
+        self._celebration_message = "Fireworks on demand!"
+        celebration_ticks, boost_ticks, boost_velocity = self._boost_profile_for_tier(tier)
+        self._stop_celebration_animation()
+        self._celebration_ticks_remaining = celebration_ticks
+        self._celebration_frame = 0
+        self._progress_boost_ticks_remaining = boost_ticks
+        self._progress_boost_velocity = boost_velocity
+
+        self.query_one("#achievement-progress", Label).update(self._render_celebration_progress())
+        stats_strip = self.query_one(".stats-strip", Horizontal)
+        stats_strip.styles.animate("opacity", 0.82, duration=0.10, easing="out_cubic")
+        stats_strip.styles.animate("opacity", 1.0, duration=0.35, delay=0.10, easing="in_out_cubic")
+        self._start_fireworks_burst(tier)
+
+        self._celebration_timer = self.set_interval(0.12, self._advance_celebration_frame)
+
+    def _advance_celebration_frame(self) -> None:
+        """Advance celebration animation frame and restore normal stats when finished."""
+        self._advance_progress_boost()
+
+        if self._celebration_ticks_remaining > 0:
+            self._celebration_ticks_remaining -= 1
+            self._celebration_frame += max(1, self._celebration_tier)
+
+        if self._celebration_ticks_remaining <= 0 and self._progress_boost_ticks_remaining <= 0:
+            self._stop_celebration_animation()
+            self._update_stats()
+            return
+
+        if self._celebration_ticks_remaining > 0:
+            self.query_one("#achievement-progress", Label).update(self._render_celebration_progress())
+        else:
+            self.query_one("#achievement-progress", Label).update(
+                self._render_achievement_progress(self.engine.session.problems_solved)
+            )
 
     @staticmethod
     def _blend_rgb(base: tuple[int, int, int], target: tuple[int, int, int], target_ratio: float) -> tuple[int, int, int]:
@@ -380,15 +628,15 @@ class KidShellTextualApp(App):
         self.styles.color = text_hex
 
         history_container = self.query_one(".history-container", Vertical)
-        stats_panel = self.query_one(".stats-panel", Vertical)
+        stats_strip = self.query_one(".stats-strip", Horizontal)
         input_container = self.query_one(".input-container", Horizontal)
         history = self.query_one("#history", TextArea)
         input_widget = self.query_one("#input", Input)
 
         history_container.styles.background = surface_hex
         history_container.styles.border = ("solid", border_hex)
-        stats_panel.styles.background = surface_hex
-        stats_panel.styles.border = ("solid", border_hex)
+        stats_strip.styles.background = surface_hex
+        stats_strip.styles.border = ("solid", border_hex)
         input_container.styles.background = surface_hex
 
         history.styles.background = history_hex
@@ -396,6 +644,11 @@ class KidShellTextualApp(App):
         input_widget.styles.background = history_hex
         input_widget.styles.color = text_hex
         input_widget.styles.border = ("solid", border_hex)
+
+        for node in self.query(".stats-strip .stat-item"):
+            if isinstance(node, Label):
+                node.styles.background = "transparent"
+                node.styles.color = text_hex
 
         for node in self.query(".title"):
             if isinstance(node, Label):
@@ -458,14 +711,25 @@ class KidShellTextualApp(App):
         if response_type == ResponseType.QUIZ:
             if isinstance(payload, dict):
                 if content.get("correct"):
-                    lines = ["Correct!"]
-                    if "answer" in content:
-                        lines.append(f"Answer: {content['answer']}")
-                    if content.get("streak") is not None:
+                    solved_quiz = content.get("quiz")
+                    solved_question = ""
+                    if isinstance(solved_quiz, dict):
+                        solved_question = str(solved_quiz.get("question", "")).strip()
+                    if not solved_question:
+                        solved_question = str(content.get("question", "")).strip()
+                    solved_answer = content.get("answer")
+                    lines = []
+                    if solved_question and solved_answer is not None:
+                        lines.append(f"Correct, {solved_question} = {solved_answer}!")
+                    elif solved_answer is not None:
+                        lines.append(f"Correct! {solved_answer}")
+                    else:
+                        lines.append("Correct!")
+                    if content.get("streak", 0) > 1:
                         lines.append(f"Streak: {content.get('streak', 0)}")
                     next_quiz = content.get("next_quiz")
                     if isinstance(next_quiz, dict) and next_quiz.get("question"):
-                        lines.append(f"Next: {next_quiz['question']}")
+                        lines.append(f"\n\nNext: {next_quiz['question']}")
                     return "\n".join(lines)
 
                 if "correct" in content:
@@ -491,6 +755,16 @@ class KidShellTextualApp(App):
                     return f"Quiz: {content.get('question')}"
             return str(payload)
 
+        if response_type == ResponseType.ACHIEVEMENT:
+            achievement_ids = content.get("achievements", [])
+            names = self._achievement_names([str(achievement_id) for achievement_id in achievement_ids])
+            if not names:
+                names = "New achievement"
+            line = f"🏆 Achievement unlocked: {names}"
+            if content.get("total_solved") is not None:
+                line += f"\nTotal solved: {content.get('total_solved')}"
+            return line
+
         if response_type == ResponseType.ERROR:
             return f"Error: {payload}"
 
@@ -505,6 +779,23 @@ class KidShellTextualApp(App):
         if normalized_input in EXIT_INPUTS:
             save_persisted_session(self.engine.session)
             self.exit()
+            return
+
+        if normalized_input in FIREWORKS_INPUTS:
+            history = self.query_one("#history", TextArea)
+            history.insert(
+                f"> {input_text}\nBoom! Fireworks celebration launched.\n\n",
+                history.document.end,
+            )
+            history.scroll_end(animate=False)
+            self._start_manual_fireworks_celebration()
+            event.input.value = ""
+            save_persisted_session(self.engine.session)
+            return
+
+        if normalized_input == "help":
+            self.action_toggle_help_panel()
+            event.input.value = ""
             return
 
         response = self.engine.process_input("") if not input_text else self.engine.process_input(input_text)
@@ -539,6 +830,9 @@ class KidShellTextualApp(App):
                 if color_name:
                     self._apply_theme_color(color_name)
 
+            if current.type == ResponseType.ACHIEVEMENT and isinstance(current.content, dict):
+                self._start_achievement_celebration(current.content)
+
             if current.type == ResponseType.QUIZ:
                 if isinstance(current.content, dict):
                     if "next_quiz" in current.content:
@@ -554,8 +848,19 @@ class KidShellTextualApp(App):
 
     def action_quit(self) -> None:
         """Quit the application."""
+        self._stop_celebration_animation()
+        self._clear_fireworks_burst()
         save_persisted_session(self.engine.session)
         self.exit()
+
+    def action_toggle_help_panel(self) -> None:
+        """Toggle the key/help panel."""
+        try:
+            self.screen.query_one(HelpPanel)
+        except NoMatches:
+            self.action_show_help_panel()
+            return
+        self.action_hide_help_panel()
 
     def action_platform_copy(self) -> None:
         """Copy selected text with platform shortcut bindings (e.g., Cmd-C on macOS)."""

@@ -80,6 +80,8 @@ def test_quiz_lifecycle_wrong_then_correct_generates_next(scripted_quizzes):
     correct = engine.process_input("5")
     assert correct.type == ResponseType.QUIZ
     assert correct.content["correct"] is True
+    assert correct.content["question"] == "2 + 3"
+    assert correct.content["quiz"]["id"] == "q1"
     assert correct.content["next_quiz"]["id"] == "q2"
     assert engine.session.problems_solved == 1
     assert engine.session.current_streak == 1

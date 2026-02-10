@@ -55,11 +55,13 @@ if DEBUG:
 RNG = random.SystemRandom()
 FAILURE_EMOJIS = ["🙈", "🤦", "😑", "😕", "🙅‍♂️"]
 MOTION_EMOJIS = ["🚣", "🛫", "🚋"]
-EXIT_INPUTS = {"bye", "quit", ":q!"}
+EXIT_INPUTS = {"bye", "quit", "exit", "close", ":q!"}
 
 
 class CliResponseRenderer:
     """Render core engine responses in the legacy/simple REPL view."""
+
+    MULTIPLICATION_PATTERN = re.compile(r"^\s*(\d+)\s*\*\s*(\d+)\s*$")
 
     def __init__(self, ui: KidShellRichUI):
         self.ui = ui
@@ -78,6 +80,49 @@ class CliResponseRenderer:
             return
         print(f"[bold yellow]{question_text} = ?[/bold yellow]")
 
+    def _decompose_two_digit(self, value: int) -> str:
+        """Return two-digit base-10 decomposition like '10 + 2'."""
+        tens, ones = divmod(value, 10)
+        pieces: list[str] = []
+        if tens:
+            pieces.append(str(tens * 10))
+        if ones:
+            pieces.append(str(ones))
+        return " + ".join(pieces) if pieces else "0"
+
+    def _multiplication_breakdown_hint(self, expression: Any, result: Any) -> str | None:
+        """Build a friendly distributive-property hint for two-digit multiplication."""
+        if not isinstance(expression, str):
+            return None
+        match = self.MULTIPLICATION_PATTERN.fullmatch(expression.strip())
+        if match is None:
+            return None
+
+        left = int(match.group(1))
+        right = int(match.group(2))
+        if left < 10 or right < 10 or left > 99 or right > 99:
+            return None
+
+        left_tens = (left // 10) * 10
+        right_tens = (right // 10) * 10
+        left_ones = left % 10
+        right_ones = right % 10
+
+        partials = [left_tens * right_tens]
+        if right_ones:
+            partials.append(left_tens * right_ones)
+        if left_ones:
+            partials.append(left_ones * right_tens)
+        if left_ones and right_ones:
+            partials.append(left_ones * right_ones)
+
+        partials_text = " + ".join(str(piece) for piece in partials)
+        return (
+            "Try breaking it apart: "
+            f"{left} * {right} = ({self._decompose_two_digit(left)}) x "
+            f"({self._decompose_two_digit(right)}) = {partials_text} = {result}"
+        )
+
     def display_response(self, response) -> None:  # noqa: C901
         """Display a response from the core engine."""
         if response.type == ResponseType.MATH_RESULT:
@@ -89,6 +134,12 @@ class CliResponseRenderer:
                     self.ui.show_math_result(content["expression"], content["result"])
                 if content.get("note"):
                     print(f"💡 {content['note']}")
+                multiplication_hint = self._multiplication_breakdown_hint(
+                    content.get("expression"),
+                    content.get("result"),
+                )
+                if multiplication_hint:
+                    print(f"💡 {multiplication_hint}")
 
         elif response.type == ResponseType.TREE_DISPLAY:
             content = response.content
@@ -97,7 +148,20 @@ class CliResponseRenderer:
         elif response.type == ResponseType.QUIZ:
             content = response.content
             if isinstance(content, dict) and content.get("correct"):
-                print(f"👏 {self._praise_phrase()}！")
+                solved_quiz = content.get("quiz")
+                solved_question = ""
+                if isinstance(solved_quiz, dict):
+                    solved_question = str(solved_quiz.get("question", "")).strip()
+                if not solved_question:
+                    solved_question = str(content.get("question", "")).strip()
+                solved_answer = content.get("answer")
+
+                if solved_question and solved_answer is not None:
+                    print(f"👏 Correct, {solved_question} = {solved_answer}!")
+                elif solved_answer is not None:
+                    print(f"👏 Correct! {solved_answer}")
+                else:
+                    print("👏 Correct!")
                 if content.get("streak", 0) > 1:
                     print(f"Streak: {content['streak']} in a row! 🔥")
                 if "next_quiz" in content:
