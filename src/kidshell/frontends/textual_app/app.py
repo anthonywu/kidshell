@@ -266,8 +266,8 @@ class KidShellTextualApp(App):
     }
     """
 
-    TITLE = "KidShell 🖥️"
-    SUB_TITLE = " – A Terminal experience for your childish expectations!"
+    TITLE = "🖥️ KidShell"
+    SUB_TITLE = "A Terminal experience for your childish expectations!"
 
     def __init__(self, session: Session | None = None):
         super().__init__()
